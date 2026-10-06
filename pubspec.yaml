@@ -1,5 +1,5 @@
 name: geosight
-description: "A production-grade optical and electronic Theodolite application with sensor fusion HUD."
+description: "A production-grade Total Station optical theodolite application with real-time trigonometry HUD."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -27,7 +27,7 @@ dependencies:
   # Linear Algebra & Vector Mathematics for 3D Coordinate Transforms
   vector_math: ^2.1.4
 
-  # Material Symbols and Cupertino Icons
+  # Icons and Utilities
   cupertino_icons: ^1.0.6
   intl: ^0.19.0
 
