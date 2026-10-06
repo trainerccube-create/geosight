@@ -21,6 +21,9 @@ jobs:
       - name: Generate Android Platform files
         run: flutter create . --platforms=android
         
+      - name: Remove Hidden Default Test File
+        run: rm -rf test
+        
       - name: Install Dependencies
         run: flutter pub get
 
