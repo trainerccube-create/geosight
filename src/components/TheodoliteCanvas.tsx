@@ -11,6 +11,7 @@ export interface TelemetryState {
 
 interface TheodoliteCanvasProps {
   telemetry: TelemetryState;
+  baselineDistance?: number;
   latitude: number | null;
   longitude: number | null;
   altitude: number | null;
@@ -24,6 +25,7 @@ interface TheodoliteCanvasProps {
 
 export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
   telemetry,
+  baselineDistance = 25.0,
   latitude,
   longitude,
   altitude,
@@ -91,7 +93,25 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
       // 5. Pitch Ladder on Right
       drawPitchLadder(ctx, width, height, telemetry.pitch, reticleColor, scale);
 
-      // 6. Responsive Telemetry HUD
+      // 6. Total Station Trigonometry Real-Time Calculations
+      const pitchRad = (telemetry.pitch * Math.PI) / 180.0;
+      const verticalDist = baselineDistance * Math.tan(pitchRad);
+      const horizontalDist = baselineDistance;
+      const cosPitch = Math.abs(Math.cos(pitchRad));
+      const slopeDist = cosPitch > 0.001 ? baselineDistance / cosPitch : baselineDistance;
+
+      drawTotalStationTrigHUD(
+        ctx,
+        width,
+        height,
+        baselineDistance,
+        verticalDist,
+        horizontalDist,
+        slopeDist,
+        scale
+      );
+
+      // 7. Responsive Telemetry HUD
       drawTelemetryHUD(ctx, width, height, telemetry, latitude, longitude, altitude, zoomFactor, isTargetLocked, scale);
 
       animationFrameId = requestAnimationFrame(render);
@@ -102,7 +122,7 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [telemetry, latitude, longitude, altitude, zoomFactor, isTargetLocked, useSyntheticCamera, videoRef]);
+  }, [telemetry, baselineDistance, latitude, longitude, altitude, zoomFactor, isTargetLocked, useSyntheticCamera, videoRef]);
 
   // Touch and pointer dragging to pan orientation directly on canvas
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -584,6 +604,102 @@ function drawPitchLadder(
   ctx.moveTo(ladderX - (isMobile ? 16 : 22), centerY);
   ctx.lineTo(ladderX, centerY);
   ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawTotalStationTrigHUD(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  baseline: number,
+  vd: number,
+  hd: number,
+  sd: number,
+  scale: number
+) {
+  const isMobile = width < 540;
+  ctx.save();
+
+  if (isMobile) {
+    // Compact banner right above the bottom telemetry HUD
+    const hudHeight = 64;
+    const trigH = 26;
+    const trigY = height - hudHeight - 10 - trigH - 6;
+    const trigPad = 10;
+    const trigW = width - trigPad * 2;
+
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.90)';
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(trigPad, trigY, trigW, trigH, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    const vdSign = vd >= 0 ? '+' : '';
+    ctx.fillStyle = '#06b6d4';
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`BASE: ${baseline.toFixed(1)}m`, trigPad + 8, trigY + 17);
+
+    ctx.fillStyle = '#10b981';
+    ctx.fillText(`VD: ${vdSign}${vd.toFixed(2)}m`, trigPad + trigW * 0.38, trigY + 17);
+
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillText(`HD: ${hd.toFixed(1)}m`, trigPad + trigW * 0.72, trigY + 17);
+  } else {
+    // Desktop / Tablet Total Station Box (Top-Left)
+    const top = 56;
+    const left = 18;
+    const boxW = 210;
+    const boxH = 68;
+
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.92)';
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.roundRect(left, top, boxW, boxH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // Title
+    ctx.fillStyle = '#06b6d4';
+    ctx.font = 'bold 8px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('TOTAL STATION ANALYSIS', left + 10, top + 14);
+
+    // Baseline & HD
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.font = '7px "JetBrains Mono", monospace';
+    ctx.fillText('BASE DIST', left + 10, top + 26);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
+    ctx.fillText(`${baseline.toFixed(2)} m`, left + 10, top + 39);
+
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.font = '7px "JetBrains Mono", monospace';
+    ctx.fillText('HORIZ (HD)', left + 10, top + 50);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 10px "JetBrains Mono", monospace';
+    ctx.fillText(`${hd.toFixed(2)} m`, left + 10, top + 61);
+
+    // VD (Height) & SD (Slope)
+    const vdSign = vd >= 0 ? '+' : '';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.font = '7px "JetBrains Mono", monospace';
+    ctx.fillText('HEIGHT (VD)', left + 110, top + 26);
+    ctx.fillStyle = '#10b981';
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
+    ctx.fillText(`${vdSign}${vd.toFixed(2)} m`, left + 110, top + 39);
+
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.font = '7px "JetBrains Mono", monospace';
+    ctx.fillText('SLOPE (SD)', left + 110, top + 50);
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 10px "JetBrains Mono", monospace';
+    ctx.fillText(`${sd.toFixed(2)} m`, left + 110, top + 61);
+  }
 
   ctx.restore();
 }

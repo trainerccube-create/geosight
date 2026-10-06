@@ -7,6 +7,10 @@ export interface SurveyRecord {
   azimuth: number;
   pitch: number;
   roll: number;
+  baselineDistance?: number;
+  verticalDistance?: number;
+  horizontalDistance?: number;
+  slopeDistance?: number;
   latitude: number;
   longitude: number;
   altitude: number;
@@ -46,6 +50,10 @@ export const SurveyLogManager: React.FC<SurveyLogManagerProps> = ({
       'Azimuth_deg',
       'Pitch_deg',
       'Roll_deg',
+      'Base_Dist_m',
+      'Vert_Dist_VD_m',
+      'Horiz_Dist_HD_m',
+      'Slope_Dist_SD_m',
       'Latitude',
       'Longitude',
       'Altitude_m',
@@ -60,6 +68,10 @@ export const SurveyLogManager: React.FC<SurveyLogManagerProps> = ({
       e.azimuth.toFixed(2),
       e.pitch.toFixed(2),
       e.roll.toFixed(2),
+      (e.baselineDistance ?? 0).toFixed(2),
+      (e.verticalDistance ?? 0).toFixed(2),
+      (e.horizontalDistance ?? 0).toFixed(2),
+      (e.slopeDistance ?? 0).toFixed(2),
       e.latitude.toFixed(6),
       e.longitude.toFixed(6),
       e.altitude.toFixed(1),
