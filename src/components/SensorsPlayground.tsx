@@ -44,6 +44,23 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
     }
   }, [rawAzimuth, filteredAzimuth]);
 
+  // Responsive canvas resizing with DPR support
+  useEffect(() => {
+    const canvas = oscCanvasRef.current;
+    if (!canvas) return;
+
+    const handleResize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Render oscilloscope at 30/60 fps
   useEffect(() => {
     const canvas = oscCanvasRef.current;
@@ -88,9 +105,9 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
         return h - (norm * (h - 24) + 12);
       };
 
-      // Draw Raw Signal (Red/Orange jittery line)
+      // Draw Raw Signal (Red jittery line)
       ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.6;
       ctx.beginPath();
       for (let i = 0; i < raw.length; i++) {
         const x = (i / 120) * w;
@@ -100,9 +117,9 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
       }
       ctx.stroke();
 
-      // Draw Filtered Signal (Smooth Amber/Emerald line)
+      // Draw Filtered Signal (Smooth Emerald line)
       ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2.6;
       ctx.beginPath();
       for (let i = 0; i < filtered.length; i++) {
         const x = (i / 120) * w;
@@ -201,58 +218,60 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
           </span>
         </div>
 
-        <input
-          type="range"
-          min="0.02"
-          max="0.80"
-          step="0.01"
-          value={alpha}
-          onChange={(e) => onAlphaChange(parseFloat(e.target.value))}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-        />
+        <div className="py-2">
+          <input
+            type="range"
+            min="0.02"
+            max="0.80"
+            step="0.01"
+            value={alpha}
+            onChange={(e) => onAlphaChange(parseFloat(e.target.value))}
+            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
+          />
+        </div>
 
         {/* Presets */}
-        <div className="grid grid-cols-3 gap-2 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
           <button
             onClick={() => onAlphaChange(0.06)}
-            className={`p-2 rounded-lg border text-left transition-colors ${
+            className={`p-3 rounded-lg border text-left transition-colors min-h-[44px] ${
               Math.abs(alpha - 0.06) < 0.02
                 ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
                 : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
           >
-            <div className="text-[11px] font-semibold">Heavy Damping</div>
-            <div className="text-[10px] text-slate-500 font-mono">&alpha; = 0.06 (Zero shake)</div>
+            <div className="text-xs font-semibold">Heavy Damping</div>
+            <div className="text-[11px] text-slate-500 font-mono">&alpha; = 0.06 (Zero shake)</div>
           </button>
 
           <button
             onClick={() => onAlphaChange(0.18)}
-            className={`p-2 rounded-lg border text-left transition-colors ${
+            className={`p-3 rounded-lg border text-left transition-colors min-h-[44px] ${
               Math.abs(alpha - 0.18) < 0.02
                 ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
                 : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
           >
-            <div className="text-[11px] font-semibold text-emerald-400">Field Recommended</div>
-            <div className="text-[10px] text-slate-500 font-mono">&alpha; = 0.18 (Survey standard)</div>
+            <div className="text-xs font-semibold text-emerald-400">Field Recommended</div>
+            <div className="text-[11px] text-slate-500 font-mono">&alpha; = 0.18 (Survey standard)</div>
           </button>
 
           <button
             onClick={() => onAlphaChange(0.45)}
-            className={`p-2 rounded-lg border text-left transition-colors ${
+            className={`p-3 rounded-lg border text-left transition-colors min-h-[44px] ${
               Math.abs(alpha - 0.45) < 0.02
                 ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
                 : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
           >
-            <div className="text-[11px] font-semibold">Tripod / High Speed</div>
-            <div className="text-[10px] text-slate-500 font-mono">&alpha; = 0.45 (Fast pan)</div>
+            <div className="text-xs font-semibold">Tripod / High Speed</div>
+            <div className="text-[11px] text-slate-500 font-mono">&alpha; = 0.45 (Fast pan)</div>
           </button>
         </div>
       </div>
 
       {/* Numerical Telemetry Comparison Grid */}
-      <div className="grid grid-cols-3 gap-3 border-t border-slate-800 pt-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-slate-800 pt-4">
         <div className="p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80">
           <div className="text-[10px] font-mono text-slate-400">AZIMUTH (BEARING)</div>
           <div className="flex items-baseline justify-between mt-1">

@@ -171,8 +171,8 @@ export const SurveyLogManager: React.FC<SurveyLogManagerProps> = ({
         />
       </div>
 
-      {/* Data Table */}
-      <div className="rounded-lg border border-slate-800 overflow-hidden">
+      {/* Desktop Data Table */}
+      <div className="hidden md:block rounded-lg border border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950/80 text-slate-400 font-mono text-[11px] border-b border-slate-800">
@@ -226,7 +226,7 @@ export const SurveyLogManager: React.FC<SurveyLogManagerProps> = ({
                     <td className="py-2.5 px-3 text-right" onClick={(ev) => ev.stopPropagation()}>
                       <button
                         onClick={() => onDeleteEntry(e.id)}
-                        className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors"
+                        className="p-1.5 text-slate-500 hover:text-red-400 rounded transition-colors"
                         title="Delete entry"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -238,6 +238,64 @@ export const SurveyLogManager: React.FC<SurveyLogManagerProps> = ({
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile Card List View (< 768px) */}
+      <div className="md:hidden space-y-3">
+        {filteredEntries.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 text-xs border border-slate-800 rounded-lg bg-slate-950/40">
+            No survey records logged yet. Aim theodolite reticle and tap "Log Survey Station".
+          </div>
+        ) : (
+          filteredEntries.map((e) => (
+            <div
+              key={e.id}
+              onClick={() => {
+                setSelectedItem(e);
+                onSelectEntry?.(e);
+              }}
+              className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-amber-500/40 transition-colors active:scale-[0.99]"
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                <span className="font-mono font-bold text-amber-400 text-xs">{e.title}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-slate-500">
+                    {new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <button
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      onDeleteEntry(e.id);
+                    }}
+                    className="p-2 min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-500 hover:text-red-400 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-2.5 font-mono text-[11px]">
+                <div className="p-2 bg-slate-900/80 rounded border border-slate-800/60">
+                  <span className="text-[9px] text-slate-500 block">AZIMUTH</span>
+                  <span className="text-slate-100 font-bold">{e.azimuth.toFixed(1)}°</span>
+                </div>
+                <div className="p-2 bg-slate-900/80 rounded border border-slate-800/60">
+                  <span className="text-[9px] text-slate-500 block">PITCH</span>
+                  <span className="text-emerald-400 font-bold">{e.pitch >= 0 ? '+' : ''}{e.pitch.toFixed(1)}°</span>
+                </div>
+                <div className="p-2 bg-slate-900/80 rounded border border-slate-800/60">
+                  <span className="text-[9px] text-slate-500 block">ROLL</span>
+                  <span className="text-cyan-400 font-bold">{e.roll.toFixed(1)}°</span>
+                </div>
+              </div>
+
+              <div className="mt-2 text-[10px] font-mono text-slate-400 flex items-center justify-between px-1">
+                <span>{e.latitude.toFixed(4)}°, {e.longitude.toFixed(4)}°</span>
+                <span className="text-slate-300 font-semibold">{e.altitude.toFixed(1)}m MSL</span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Selected Entry Detail drawer / inspection */}

@@ -5,6 +5,7 @@ import { Copy, Check, Download, FileCode, Layers, ShieldCheck, Terminal } from '
 export const FlutterCodeViewer: React.FC = () => {
   const [selectedFileId, setSelectedFileId] = useState<string>('sensor_service');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [wrapLines, setWrapLines] = useState<boolean>(false);
 
   const currentFile = FLUTTER_FILES.find((f) => f.id === selectedFileId) || FLUTTER_FILES[0];
 
@@ -32,18 +33,18 @@ export const FlutterCodeViewer: React.FC = () => {
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex flex-col">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex flex-col relative">
       {/* Top File Selection Bar */}
-      <div className="bg-slate-950 border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-slate-950 border-b border-slate-800 px-3 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
         {/* File tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 w-full sm:w-auto scrollbar-thin">
           {FLUTTER_FILES.map((file) => {
             const isActive = file.id === selectedFileId;
             return (
               <button
                 key={file.id}
                 onClick={() => setSelectedFileId(file.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
+                className={`px-3 py-2 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-2 whitespace-nowrap min-h-[44px] ${
                   isActive
                     ? 'bg-amber-500/15 border border-amber-500/50 text-amber-300'
                     : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -56,56 +57,63 @@ export const FlutterCodeViewer: React.FC = () => {
           })}
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-2">
+        {/* Action buttons (Desktop & Mobile header) */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end pt-1 sm:pt-0">
+          <button
+            onClick={() => setWrapLines(!wrapLines)}
+            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-lg border border-slate-800 text-xs font-mono min-h-[38px]"
+            title="Toggle word wrap"
+          >
+            {wrapLines ? 'No Wrap' : 'Wrap'}
+          </button>
           <button
             onClick={() => handleCopy(currentFile)}
-            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-colors"
+            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-colors min-h-[40px]"
           >
             {copiedId === currentFile.id ? (
               <>
                 <Check className="w-3.5 h-3.5" />
-                Copied to Clipboard!
+                Copied!
               </>
             ) : (
               <>
                 <Copy className="w-3.5 h-3.5" />
-                Copy {currentFile.filename}
+                <span>Copy {currentFile.filename}</span>
               </>
             )}
           </button>
           <button
             onClick={() => handleDownload(currentFile)}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors"
+            className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors"
             title={`Download ${currentFile.filename}`}
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* File meta description info banner */}
-      <div className="px-5 py-2.5 bg-slate-950/60 border-b border-slate-800/80 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2 text-slate-400 font-mono">
-          <span className="text-amber-400 font-semibold">{currentFile.filepath}</span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-400 text-[11px]">{currentFile.description}</span>
+      <div className="px-4 py-2 bg-slate-950/60 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+        <div className="flex items-center gap-2 text-slate-400 font-mono truncate">
+          <span className="text-amber-400 font-semibold shrink-0">{currentFile.filepath}</span>
+          <span className="text-slate-600 hidden sm:inline">·</span>
+          <span className="text-slate-400 text-[11px] truncate">{currentFile.description}</span>
         </div>
-        <span className="text-[11px] font-mono text-slate-500">
+        <span className="text-[11px] font-mono text-slate-500 shrink-0">
           {currentFile.code.split('\n').length} lines
         </span>
       </div>
 
       {/* Code Viewer Area with line numbering */}
-      <div className="relative overflow-x-auto max-h-[640px] bg-slate-950 text-slate-200 font-mono text-xs p-4 selection:bg-amber-500/30 selection:text-amber-200">
-        <pre className="leading-relaxed">
+      <div className="relative overflow-x-auto max-h-[580px] sm:max-h-[640px] bg-slate-950 text-slate-200 font-mono text-xs p-3 sm:p-4 selection:bg-amber-500/30 selection:text-amber-200">
+        <pre className={`leading-relaxed ${wrapLines ? 'whitespace-pre-wrap break-all' : ''}`}>
           <code>
             {currentFile.code.split('\n').map((line, idx) => (
               <div key={idx} className="table-row hover:bg-slate-900/60">
-                <span className="table-cell select-none text-right pr-4 text-slate-600 w-10 text-[11px]">
+                <span className="table-cell select-none text-right pr-3 sm:pr-4 text-slate-600 w-8 sm:w-10 text-[10px] sm:text-[11px]">
                   {idx + 1}
                 </span>
-                <span className="table-cell whitespace-pre">{line}</span>
+                <span className={`table-cell ${wrapLines ? 'break-words' : 'whitespace-pre'}`}>{line}</span>
               </div>
             ))}
           </code>
