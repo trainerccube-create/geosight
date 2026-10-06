@@ -1,0 +1,9 @@
+{
+  "name": "GeoSight - Mobile Theodolite Studio",
+  "description": "Production-ready mobile Theodolite and geospatial surveying suite with 60 FPS HUD overlay, sensor fusion, low-pass filter, and SQLite survey logging.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
