@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
@@ -179,15 +180,15 @@ class _TheodoliteScreenState extends State<TheodoliteScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, py: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), // Fixed typo: 'py' to 'vertical'
                         decoration: BoxDecoration(
                           color: Colors.black54,
                           borderRadius: BorderRadius.circular(4),
                           border: Border.all(color: Colors.white24),
                         ),
-                        child: Text(
+                        child: const Text(
                           'GEOSIGHT // THEODOLITE',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 12,
                             color: Color(0xFFF59E0B),
@@ -231,4 +232,40 @@ class _TheodoliteScreenState extends State<TheodoliteScreen> {
       ),
     );
   }
+}
+
+// Data structures definitions so dependencies resolve cleanly
+class TelemetryData {
+  final double azimuth;
+  final double pitch;
+  final double roll;
+
+  TelemetryData({required this.azimuth, required this.pitch, required this.roll});
+  factory TelemetryData.initial() => TelemetryData(azimuth: 0.0, pitch: 0.0, roll: 0.0);
+}
+
+class SurveyEntry {
+  final String title;
+  final double azimuth;
+  final double pitch;
+  final double roll;
+  final double latitude;
+  final double longitude;
+  final double altitude;
+  final double accuracy;
+  final double zoomFactor;
+  final DateTime timestamp;
+
+  SurveyEntry({
+    required this.title,
+    required this.azimuth,
+    required this.pitch,
+    required this.roll,
+    required this.latitude,
+    required this.longitude,
+    required this.altitude,
+    required this.accuracy,
+    required this.zoomFactor,
+    required this.timestamp,
+  });
 }
