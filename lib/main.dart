@@ -52,7 +52,7 @@ class _TheodoliteScreenState extends State<TheodoliteScreen> {
 
   TelemetryData _currentTelemetry = TelemetryData.initial();
   Position? _currentPosition;
-  double _zoomFactor = 1.0;
+  final double _zoomFactor = 1.0;
   bool _isLocked = false;
   bool _isLogging = false;
 
@@ -180,7 +180,7 @@ class _TheodoliteScreenState extends State<TheodoliteScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), // Fixed typo: 'py' to 'vertical'
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
                           color: Colors.black54,
                           borderRadius: BorderRadius.circular(4),
@@ -232,40 +232,4 @@ class _TheodoliteScreenState extends State<TheodoliteScreen> {
       ),
     );
   }
-}
-
-// Data structures definitions so dependencies resolve cleanly
-class TelemetryData {
-  final double azimuth;
-  final double pitch;
-  final double roll;
-
-  TelemetryData({required this.azimuth, required this.pitch, required this.roll});
-  factory TelemetryData.initial() => TelemetryData(azimuth: 0.0, pitch: 0.0, roll: 0.0);
-}
-
-class SurveyEntry {
-  final String title;
-  final double azimuth;
-  final double pitch;
-  final double roll;
-  final double latitude;
-  final double longitude;
-  final double altitude;
-  final double accuracy;
-  final double zoomFactor;
-  final DateTime timestamp;
-
-  SurveyEntry({
-    required this.title,
-    required this.azimuth,
-    required this.pitch,
-    required this.roll,
-    required this.latitude,
-    required this.longitude,
-    required this.altitude,
-    required this.accuracy,
-    required this.zoomFactor,
-    required this.timestamp,
-  });
 }
