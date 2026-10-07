@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TheodoliteCanvas, TelemetryState } from './components/TheodoliteCanvas';
+import { RadarPlotterCanvas } from './components/RadarPlotterCanvas';
 import { SensorsPlayground } from './components/SensorsPlayground';
 import { SurveyLogManager, SurveyRecord } from './components/SurveyLogManager';
 import { FlutterCodeViewer } from './components/FlutterCodeViewer';
@@ -24,12 +25,18 @@ import {
   Ruler,
   HelpCircle,
   Calculator,
-  X
+  X,
+  Radar,
+  SlidersHorizontal,
+  Sliders as TuneSliders
 } from 'lucide-react';
 
 export default function App() {
   // Navigation active tab
   const [activeTab, setActiveTab] = useState<'viewfinder' | 'lab' | 'code' | 'database'>('viewfinder');
+
+  // Dual Mode HUD Screen: 'camera' (Mode A) vs 'radar' (Mode B)
+  const [hudMode, setHudMode] = useState<'camera' | 'radar'>('camera');
 
   // Filter parameter alpha
   const [alpha, setAlpha] = useState<number>(0.18);
@@ -62,15 +69,31 @@ export default function App() {
   const [baselineInputText, setBaselineInputText] = useState<string>('25.0');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(true);
 
-  // SQLite Survey Entries (Pre-seeded with realistic surveying benchmarks & Total Station trigonometry)
+  // Instrument Height (HI) & Target/Reflector Height (HR) Calibration
+  const [instrumentHeight, setInstrumentHeight] = useState<number>(1.55); // meters
+  const [targetHeight, setTargetHeight] = useState<number>(1.60);         // meters
+  const [isCalibrationModalOpen, setIsCalibrationModalOpen] = useState<boolean>(false);
+  const [hiInputText, setHiInputText] = useState<string>('1.55');
+  const [hrInputText, setHrInputText] = useState<string>('1.60');
+
+  // Feature Code Selection: 'BM' | 'BND' | 'TOPO' | 'UTIL'
+  const [selectedFeatureCode, setSelectedFeatureCode] = useState<'BM' | 'BND' | 'TOPO' | 'UTIL'>('TOPO');
+
+  // SQLite Survey Entries with Dynamic Local NEZ Coordinates and Feature Codes
   const [surveyEntries, setSurveyEntries] = useState<SurveyRecord[]>([
     {
       id: 1,
       title: 'BM-ALPHA-01',
+      featureCode: 'BM',
       azimuth: 45.2,
       pitch: 2.1,
       roll: 0.0,
       baselineDistance: 25.0,
+      instrumentHeight: 1.55,
+      targetHeight: 1.60,
+      northing: 17.61,  // 25.0 * cos(45.2°)
+      easting: 17.74,   // 25.0 * sin(45.2°)
+      trueElevation: 49.07, // 48.2 + 0.92 + 1.55 - 1.60
       verticalDistance: 0.92,
       horizontalDistance: 25.0,
       slopeDistance: 25.02,
@@ -84,11 +107,17 @@ export default function App() {
     },
     {
       id: 2,
-      title: 'STATION_PRISM_EAST',
+      title: 'STATION_BND_EAST',
+      featureCode: 'BND',
       azimuth: 89.8,
       pitch: -1.4,
       roll: -0.2,
       baselineDistance: 40.0,
+      instrumentHeight: 1.55,
+      targetHeight: 1.60,
+      northing: 0.14,   // 40.0 * cos(89.8°)
+      easting: 39.99,   // 40.0 * sin(89.8°)
+      trueElevation: 50.67, // 51.7 - 0.98 + 1.55 - 1.60
       verticalDistance: -0.98,
       horizontalDistance: 40.0,
       slopeDistance: 40.01,
@@ -97,16 +126,22 @@ export default function App() {
       altitude: 51.7,
       accuracy: 0.05,
       zoomFactor: 2.5,
-      notes: 'Triple prism reflector at perimeter fence line',
+      notes: 'Boundary pin marker at eastern perimeter line',
       timestamp: new Date(Date.now() - 3600000).toISOString(),
     },
     {
       id: 3,
-      title: 'PIER_COLUMN_B4',
+      title: 'UTIL_POWER_POLE',
+      featureCode: 'UTIL',
       azimuth: 180.3,
       pitch: 12.8,
       roll: 0.1,
       baselineDistance: 18.5,
+      instrumentHeight: 1.55,
+      targetHeight: 1.60,
+      northing: -18.50, // 18.5 * cos(180.3°)
+      easting: -0.10,   // 18.5 * sin(180.3°)
+      trueElevation: 66.55, // 62.4 + 4.20 + 1.55 - 1.60
       verticalDistance: 4.20,
       horizontalDistance: 18.5,
       slopeDistance: 18.97,
@@ -115,8 +150,32 @@ export default function App() {
       altitude: 62.4,
       accuracy: 0.03,
       zoomFactor: 4.0,
-      notes: 'Structural pier top elevation check',
+      notes: 'Utility infrastructure transformer pole attachment',
       timestamp: new Date(Date.now() - 1800000).toISOString(),
+    },
+    {
+      id: 4,
+      title: 'TOPO_CREST_04',
+      featureCode: 'TOPO',
+      azimuth: 295.4,
+      pitch: 5.6,
+      roll: -0.3,
+      baselineDistance: 32.0,
+      instrumentHeight: 1.55,
+      targetHeight: 1.60,
+      northing: 13.73,  // 32.0 * cos(295.4°)
+      easting: -28.90,  // 32.0 * sin(295.4°)
+      trueElevation: 51.28,
+      verticalDistance: 3.13,
+      horizontalDistance: 32.0,
+      slopeDistance: 32.15,
+      latitude: 37.775010,
+      longitude: -122.419780,
+      altitude: 48.2,
+      accuracy: 0.04,
+      zoomFactor: 2.0,
+      notes: 'Natural terrain ridge slope elevation shot',
+      timestamp: new Date(Date.now() - 900000).toISOString(),
     },
   ]);
 
@@ -236,23 +295,37 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Log new survey station to SQLite with Total Station Trigonometry
+  // Log new survey station to SQLite with Total Station Trigonometry & NEZ Grid
   const handleLogStation = () => {
     const newId = surveyEntries.length > 0 ? Math.max(...surveyEntries.map((e) => e.id)) + 1 : 1;
     const pitchRad = (filteredPitch * Math.PI) / 180.0;
-    const verticalDist = baselineDistance * Math.tan(pitchRad);
+    const azRad = (filteredAzimuth * Math.PI) / 180.0;
     const horizontalDist = baselineDistance;
+    const rawVD = baselineDistance * Math.tan(pitchRad);
+    // True relative elevation factoring Instrument Height (HI) and Reflector Height (HR)
+    const trueDeltaZ = rawVD + instrumentHeight - targetHeight;
+    const trueElevation = altitude + trueDeltaZ;
     const cosPitch = Math.abs(Math.cos(pitchRad));
     const slopeDist = cosPitch > 0.001 ? baselineDistance / cosPitch : baselineDistance;
+
+    // Dynamic Local Coordinate System (NEZ Grid)
+    const northing = horizontalDist * Math.cos(azRad);
+    const easting = horizontalDist * Math.sin(azRad);
 
     const newRecord: SurveyRecord = {
       id: newId,
       title: `STATION_${String(newId).padStart(3, '0')}`,
+      featureCode: selectedFeatureCode,
       azimuth: parseFloat(filteredAzimuth.toFixed(2)),
       pitch: parseFloat(filteredPitch.toFixed(2)),
       roll: parseFloat(filteredRoll.toFixed(2)),
       baselineDistance: parseFloat(baselineDistance.toFixed(2)),
-      verticalDistance: parseFloat(verticalDist.toFixed(2)),
+      instrumentHeight: parseFloat(instrumentHeight.toFixed(2)),
+      targetHeight: parseFloat(targetHeight.toFixed(2)),
+      northing: parseFloat(northing.toFixed(3)),
+      easting: parseFloat(easting.toFixed(3)),
+      trueElevation: parseFloat(trueElevation.toFixed(3)),
+      verticalDistance: parseFloat(rawVD.toFixed(2)),
       horizontalDistance: parseFloat(horizontalDist.toFixed(2)),
       slopeDistance: parseFloat(slopeDist.toFixed(2)),
       latitude: parseFloat(latitude.toFixed(6)),
@@ -260,12 +333,12 @@ export default function App() {
       altitude: parseFloat(altitude.toFixed(1)),
       accuracy: 0.04,
       zoomFactor: zoomFactor,
-      notes: `Total Station record: Base ${baselineDistance.toFixed(1)}m, VD ${verticalDist >= 0 ? '+' : ''}${verticalDist.toFixed(2)}m, HD ${horizontalDist.toFixed(2)}m`,
+      notes: `Total Station shot: N ${northing >= 0 ? '+' : ''}${northing.toFixed(2)}m, E ${easting >= 0 ? '+' : ''}${easting.toFixed(2)}m, Z ${trueElevation.toFixed(2)}m [${selectedFeatureCode}]`,
       timestamp: new Date().toISOString(),
     };
 
     setSurveyEntries([newRecord, ...surveyEntries]);
-    showToast(`Station ${newRecord.title} Logged (VD: ${verticalDist >= 0 ? '+' : ''}${verticalDist.toFixed(2)}m)`);
+    showToast(`Logged #${newRecord.id} [${selectedFeatureCode}]: N ${northing.toFixed(1)}m, E ${easting.toFixed(1)}m, Z ${trueElevation.toFixed(1)}m`);
   };
 
   const handleDeleteEntry = (id: number) => {
@@ -441,310 +514,462 @@ export default function App() {
       <main className="flex-1 max-w-7xl mx-auto w-full p-3 sm:p-6 space-y-5">
         {/* VIEW 1: LIVE RETICLE VIEWFINDER */}
         {activeTab === 'viewfinder' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            {/* Viewfinder Canvas Stage (8 cols) */}
-            <div className="lg:col-span-8 space-y-3">
-              <div className="relative aspect-[4/5] xs:aspect-[3/4] sm:aspect-[4/3] w-full rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl touch-none">
-                <TheodoliteCanvas
-                  telemetry={{
-                    azimuth: filteredAzimuth,
-                    pitch: filteredPitch,
-                    roll: filteredRoll,
-                    rawAzimuth,
-                    rawPitch,
-                    rawRoll,
-                  }}
-                  baselineDistance={baselineDistance}
-                  latitude={latitude}
-                  longitude={longitude}
-                  altitude={altitude}
-                  zoomFactor={zoomFactor}
-                  isTargetLocked={isTargetLocked}
-                  videoRef={videoRef}
-                  useSyntheticCamera={useSyntheticCamera}
-                  onPan={handlePan}
-                  onZoomChange={setZoomFactor}
-                />
+          <div className="space-y-4">
+            {/* Top Toolbar: Dual Mode HUD Screen Toggle + Feature Code Library + Calibration */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
+              {/* Dual Mode HUD Toggle (Mode A: Camera HUD vs Mode B: 2D Radar Canvas Plotter) */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <button
+                  onClick={() => setHudMode('camera')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors ${
+                    hudMode === 'camera'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Mode A: Camera HUD</span>
+                </button>
+                <button
+                  onClick={() => setHudMode('radar')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors ${
+                    hudMode === 'radar'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Radar className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Mode B: 2D Radar Plotter</span>
+                </button>
+              </div>
 
-                {/* Top overlay controls */}
-                <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
-                  <button
-                    onClick={toggleRealCamera}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-900/85 hover:bg-slate-900 text-slate-200 border border-slate-700/80 text-[11px] font-mono flex items-center gap-1.5 backdrop-blur transition-colors min-h-[36px]"
-                  >
-                    {useSyntheticCamera ? (
-                      <>
-                        <Video className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="hidden xs:inline">WebCam</span>
-                      </>
-                    ) : (
-                      <>
-                        <VideoOff className="w-3.5 h-3.5 text-cyan-400" />
-                        <span className="hidden xs:inline">Terrain</span>
-                      </>
-                    )}
-                  </button>
+              {/* Feature Code Selector (BM / BND / TOPO / UTIL) */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mr-1">
+                  Feature Code:
+                </span>
+                {(['BM', 'BND', 'TOPO', 'UTIL'] as const).map((fc) => {
+                  const isSelected = selectedFeatureCode === fc;
+                  let colorClass = 'text-cyan-400 border-cyan-600 bg-cyan-950/40';
+                  if (fc === 'BM') colorClass = 'text-amber-400 border-amber-600 bg-amber-950/40';
+                  if (fc === 'BND') colorClass = 'text-emerald-400 border-emerald-600 bg-emerald-950/40';
+                  if (fc === 'UTIL') colorClass = 'text-purple-400 border-purple-600 bg-purple-950/40';
 
-                  <div className="px-2 py-1.5 rounded-lg bg-slate-900/85 text-emerald-400 border border-slate-700/80 text-[10px] font-mono flex items-center gap-1 backdrop-blur">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                    <span>60 FPS</span>
-                  </div>
-                </div>
-
-                {/* Zoom control bar at top right */}
-                <div className="absolute top-3 right-3 z-10 flex items-center gap-1 bg-slate-900/85 p-1 rounded-lg border border-slate-700/80 backdrop-blur">
-                  {[1.0, 2.0, 4.0, 8.0].map((z) => (
+                  return (
                     <button
-                      key={z}
-                      onClick={() => setZoomFactor(z)}
-                      className={`px-2 py-1 rounded text-[10px] sm:text-[11px] font-mono transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center ${
-                        zoomFactor === z
-                          ? 'bg-amber-500 text-slate-950 font-bold'
-                          : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      key={fc}
+                      onClick={() => setSelectedFeatureCode(fc)}
+                      className={`px-2.5 py-1 rounded text-xs font-mono font-bold transition-all border ${
+                        isSelected
+                          ? `${colorClass} ring-1 ring-white/50 shadow-md`
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
                       }`}
                     >
-                      {z}x
+                      {fc}
                     </button>
-                  ))}
-                </div>
-
-                {/* Touch Drag Prompt watermark hint */}
-                <div className="absolute top-14 left-1/2 -translate-x-1/2 pointer-events-none opacity-40 text-[9px] font-mono text-slate-400 tracking-wider uppercase sm:hidden">
-                  Swipe screen to aim reticle
-                </div>
+                  );
+                })}
               </div>
 
-              {/* Mobile Quick Action Strip (Natural Thumb Zone) */}
-              <div className="space-y-2.5">
-                {/* Prominent Edit Baseline Distance Button */}
-                <button
-                  onClick={() => {
-                    setBaselineInputText(baselineDistance.toString());
-                    setIsBaselineModalOpen(true);
-                  }}
-                  className="w-full py-2.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-400 border border-cyan-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition-all min-h-[44px] shadow-sm"
-                >
-                  <Ruler className="w-4 h-4 text-cyan-400" />
-                  <span>BASE DISTANCE: {baselineDistance.toFixed(1)} m [TAP TO EDIT]</span>
-                </button>
-
-                {/* Primary Station Log Button on Mobile */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleLogStation}
-                    className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs font-mono flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition-all min-h-[48px] active:scale-[0.98]"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    LOG TOTAL STATION MARK
-                  </button>
-
-                  <button
-                    onClick={() => setShowMobileGimbal(!showMobileGimbal)}
-                    className={`p-3 rounded-xl border flex items-center justify-center min-h-[48px] min-w-[48px] transition-colors lg:hidden ${
-                      showMobileGimbal
-                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                    title="Toggle manual gimbal adjustment"
-                  >
-                    <Navigation className="w-4 h-4" />
-                  </button>
-
-                  {hasGyroHardware && !gyroPermissionGranted && (
-                    <button
-                      onClick={requestGyroPermission}
-                      className="px-3 py-3 rounded-xl bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 font-mono text-xs flex items-center gap-1.5 min-h-[48px]"
-                      title="Enable Device Gyroscope"
-                    >
-                      <Compass className="w-4 h-4 text-cyan-400" />
-                      <span className="hidden xs:inline">Gyro</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Viewfinder Instructions */}
-                <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 px-1 gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-amber-400 font-mono font-medium">Aim:</span>
-                    <span>Touch-drag canvas or use gimbal controls.</span>
-                  </div>
-                  <div className="font-mono text-slate-500 text-[10px]">
-                    Optics: F/1.8 · Stadia: 100 · 25mrad
-                  </div>
-                </div>
-              </div>
+              {/* Instrument Calibration Quick Trigger */}
+              <button
+                onClick={() => {
+                  setHiInputText(instrumentHeight.toString());
+                  setHrInputText(targetHeight.toString());
+                  setBaselineInputText(baselineDistance.toString());
+                  setIsCalibrationModalOpen(true);
+                }}
+                className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-amber-500/40 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+                <span>HI: {instrumentHeight.toFixed(2)}m · HR: {targetHeight.toFixed(2)}m [CALIBRATE]</span>
+              </button>
             </div>
 
-            {/* Viewfinder Lateral Control & Surveying Panel (4 cols on desktop, collapsible on mobile) */}
-            <div className={`lg:col-span-4 space-y-4 ${showMobileGimbal ? 'block' : 'hidden lg:block'}`}>
-              {/* Aiming Gimbal & Orientation Scrubbers */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <h3 className="text-xs font-semibold text-slate-200 font-mono uppercase tracking-wide flex items-center gap-2">
-                    <Navigation className="w-3.5 h-3.5 text-amber-500" />
-                    Manual Theodolite Gimbal
-                  </h3>
-                  <button
-                    onClick={() => {
-                      setRawAzimuth(0);
-                      setFilteredAzimuth(0);
-                      setRawPitch(0);
-                      setFilteredPitch(0);
-                      setRawRoll(0);
-                      setFilteredRoll(0);
-                    }}
-                    className="text-[10px] font-mono text-amber-400 hover:text-amber-300"
-                  >
-                    [Reset 0° North]
-                  </button>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              {/* Viewfinder Canvas Stage (8 cols) */}
+              <div className="lg:col-span-8 space-y-3">
+                <div className="relative aspect-[4/5] xs:aspect-[3/4] sm:aspect-[4/3] w-full rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl touch-none">
+                  {hudMode === 'camera' ? (
+                    <TheodoliteCanvas
+                      telemetry={{
+                        azimuth: filteredAzimuth,
+                        pitch: filteredPitch,
+                        roll: filteredRoll,
+                        rawAzimuth,
+                        rawPitch,
+                        rawRoll,
+                      }}
+                      baselineDistance={baselineDistance}
+                      instrumentHeight={instrumentHeight}
+                      targetHeight={targetHeight}
+                      featureCode={selectedFeatureCode}
+                      latitude={latitude}
+                      longitude={longitude}
+                      altitude={altitude}
+                      zoomFactor={zoomFactor}
+                      isTargetLocked={isTargetLocked}
+                      videoRef={videoRef}
+                      useSyntheticCamera={useSyntheticCamera}
+                      onPan={handlePan}
+                      onZoomChange={setZoomFactor}
+                    />
+                  ) : (
+                    <RadarPlotterCanvas
+                      entries={surveyEntries}
+                      currentAzimuth={filteredAzimuth}
+                      currentBaselineDistance={baselineDistance}
+                      currentNorthing={baselineDistance * Math.cos((filteredAzimuth * Math.PI) / 180)}
+                      currentEasting={baselineDistance * Math.sin((filteredAzimuth * Math.PI) / 180)}
+                      currentZenith={
+                        altitude +
+                        (baselineDistance * Math.tan((filteredPitch * Math.PI) / 180) +
+                          instrumentHeight -
+                          targetHeight)
+                      }
+                      currentFeatureCode={selectedFeatureCode}
+                    />
+                  )}
+
+                  {/* Top overlay controls (Camera View only) */}
+                  {hudMode === 'camera' && (
+                    <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
+                      <button
+                        onClick={toggleRealCamera}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-900/85 hover:bg-slate-900 text-slate-200 border border-slate-700/80 text-[11px] font-mono flex items-center gap-1.5 backdrop-blur transition-colors min-h-[36px]"
+                      >
+                        {useSyntheticCamera ? (
+                          <>
+                            <Video className="w-3.5 h-3.5 text-amber-400" />
+                            <span className="hidden xs:inline">WebCam</span>
+                          </>
+                        ) : (
+                          <>
+                            <VideoOff className="w-3.5 h-3.5 text-cyan-400" />
+                            <span className="hidden xs:inline">Terrain</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="px-2 py-1.5 rounded-lg bg-slate-900/85 text-emerald-400 border border-slate-700/80 text-[10px] font-mono flex items-center gap-1 backdrop-blur">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                        <span>60 FPS</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Zoom control bar at top right */}
+                  {hudMode === 'camera' && (
+                    <div className="absolute top-3 right-3 z-10 flex items-center gap-1 bg-slate-900/85 p-1 rounded-lg border border-slate-700/80 backdrop-blur">
+                      {[1.0, 2.0, 4.0, 8.0].map((z) => (
+                        <button
+                          key={z}
+                          onClick={() => setZoomFactor(z)}
+                          className={`px-2 py-1 rounded text-[10px] sm:text-[11px] font-mono transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center ${
+                            zoomFactor === z
+                              ? 'bg-amber-500 text-slate-950 font-bold'
+                              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                          }`}
+                        >
+                          {z}x
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Mode Watermark hint */}
+                  <div className="absolute top-14 left-1/2 -translate-x-1/2 pointer-events-none opacity-40 text-[9px] font-mono text-slate-400 tracking-wider uppercase sm:hidden">
+                    {hudMode === 'camera' ? 'Swipe screen to aim reticle' : '2D Radar Relative NEZ Grid'}
+                  </div>
                 </div>
 
-                {/* Gimbal Jogger Controls */}
-                <div className="flex flex-col items-center justify-center py-2 space-y-2">
-                  <button
-                    onClick={() => handlePan(0, 2.5)}
-                    className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px] min-w-[120px]"
-                    title="Pitch Up"
-                  >
-                    ▲ Elevation +2.5°
-                  </button>
-
-                  <div className="flex items-center gap-2 w-full justify-center">
+                {/* Mobile Quick Action Strip (Natural Thumb Zone) */}
+                <div className="space-y-2.5">
+                  {/* Prominent Edit Baseline Distance & Calibration */}
+                  <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => handlePan(-5.0, 0)}
-                      className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px]"
-                      title="Azimuth West"
+                      onClick={() => {
+                        setBaselineInputText(baselineDistance.toString());
+                        setIsBaselineModalOpen(true);
+                      }}
+                      className="py-2.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-cyan-400 border border-cyan-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all min-h-[44px] shadow-sm"
                     >
-                      ◄ Pan -5°
+                      <Ruler className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>BASE: {baselineDistance.toFixed(1)}m</span>
                     </button>
 
-                    <div className="px-3 py-2 bg-slate-950 rounded-lg border border-slate-800 text-center font-mono text-xs">
-                      <div className="text-[9px] text-slate-500">BEARING</div>
-                      <div className="font-bold text-amber-400">{filteredAzimuth.toFixed(1)}°</div>
-                    </div>
-
                     <button
-                      onClick={() => handlePan(5.0, 0)}
-                      className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px]"
-                      title="Azimuth East"
+                      onClick={() => {
+                        setHiInputText(instrumentHeight.toString());
+                        setHrInputText(targetHeight.toString());
+                        setBaselineInputText(baselineDistance.toString());
+                        setIsCalibrationModalOpen(true);
+                      }}
+                      className="py-2.5 px-3 bg-slate-900/90 hover:bg-slate-800 text-amber-400 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all min-h-[44px] shadow-sm"
                     >
-                      Pan +5° ►
+                      <TuneSliders className="w-3.5 h-3.5 text-amber-400" />
+                      <span>CALIBRATE (HI/HR)</span>
                     </button>
                   </div>
 
-                  <button
-                    onClick={() => handlePan(0, -2.5)}
-                    className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px] min-w-[120px]"
-                    title="Pitch Down"
-                  >
-                    ▼ Elevation -2.5°
-                  </button>
-                </div>
+                  {/* Primary Station Log Button on Mobile */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleLogStation}
+                      className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs font-mono flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition-all min-h-[48px] active:scale-[0.98]"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                      LOG STATION [{selectedFeatureCode}]
+                    </button>
 
-                {/* Direct Slider Rails */}
-                <div className="space-y-3 pt-2 border-t border-slate-800">
-                  <div>
-                    <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
-                      <span>AZIMUTH (0° - 360°)</span>
-                      <span className="text-amber-400 font-bold">{filteredAzimuth.toFixed(1)}°</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="359.9"
-                      step="0.5"
-                      value={filteredAzimuth}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setRawAzimuth(val);
-                        setFilteredAzimuth(val);
-                      }}
-                      className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
-                    />
+                    <button
+                      onClick={() => setShowMobileGimbal(!showMobileGimbal)}
+                      className={`p-3 rounded-xl border flex items-center justify-center min-h-[48px] min-w-[48px] transition-colors lg:hidden ${
+                        showMobileGimbal
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                      }`}
+                      title="Toggle manual gimbal adjustment"
+                    >
+                      <Navigation className="w-4 h-4" />
+                    </button>
+
+                    {hasGyroHardware && !gyroPermissionGranted && (
+                      <button
+                        onClick={requestGyroPermission}
+                        className="px-3 py-3 rounded-xl bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 font-mono text-xs flex items-center gap-1.5 min-h-[48px]"
+                        title="Enable Device Gyroscope"
+                      >
+                        <Compass className="w-4 h-4 text-cyan-400" />
+                        <span className="hidden xs:inline">Gyro</span>
+                      </button>
+                    )}
                   </div>
 
-                  <div>
-                    <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
-                      <span>PITCH ELEVATION (-90° to +90°)</span>
-                      <span className="text-amber-400 font-bold">{filteredPitch >= 0 ? '+' : ''}{filteredPitch.toFixed(1)}°</span>
+                  {/* Viewfinder Instructions */}
+                  <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 px-1 gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-amber-400 font-mono font-medium">Mode:</span>
+                      <span>
+                        {hudMode === 'camera'
+                          ? 'Optical Theodolite Reticle with 60 FPS live NEZ stream.'
+                          : '2D Relative Radar Plotter mapping logged station grid.'}
+                      </span>
                     </div>
-                    <input
-                      type="range"
-                      min="-90"
-                      max="90"
-                      step="0.5"
-                      value={filteredPitch}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setRawPitch(val);
-                        setFilteredPitch(val);
-                      }}
-                      className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
-                    />
+                    <div className="font-mono text-slate-500 text-[10px]">
+                      Datum: LOCAL NEZ · RTK Fix
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Station Geodetic Position Card & Total Station Controls */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-slate-200 font-mono uppercase tracking-wide flex items-center gap-1.5">
-                    <Calculator className="w-3.5 h-3.5 text-cyan-400" />
-                    Total Station Analysis
-                  </h3>
-                  <span className="text-[10px] font-mono text-cyan-400">TRIG ENGINE</span>
+              {/* Viewfinder Lateral Control & Surveying Panel (4 cols on desktop, collapsible on mobile) */}
+              <div className={`lg:col-span-4 space-y-4 ${showMobileGimbal ? 'block' : 'hidden lg:block'}`}>
+                {/* Aiming Gimbal & Orientation Scrubbers */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 className="text-xs font-semibold text-slate-200 font-mono uppercase tracking-wide flex items-center gap-2">
+                      <Navigation className="w-3.5 h-3.5 text-amber-500" />
+                      Manual Theodolite Gimbal
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setRawAzimuth(0);
+                        setFilteredAzimuth(0);
+                        setRawPitch(0);
+                        setFilteredPitch(0);
+                        setRawRoll(0);
+                        setFilteredRoll(0);
+                      }}
+                      className="text-[10px] font-mono text-amber-400 hover:text-amber-300"
+                    >
+                      [Reset 0° North]
+                    </button>
+                  </div>
+
+                  {/* Gimbal Jogger Controls */}
+                  <div className="flex flex-col items-center justify-center py-2 space-y-2">
+                    <button
+                      onClick={() => handlePan(0, 2.5)}
+                      className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px] min-w-[120px]"
+                      title="Pitch Up"
+                    >
+                      ▲ Elevation +2.5°
+                    </button>
+
+                    <div className="flex items-center gap-2 w-full justify-center">
+                      <button
+                        onClick={() => handlePan(-5.0, 0)}
+                        className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px]"
+                        title="Azimuth West"
+                      >
+                        ◄ Pan -5°
+                      </button>
+
+                      <div className="px-3 py-2 bg-slate-950 rounded-lg border border-slate-800 text-center font-mono text-xs">
+                        <div className="text-[9px] text-slate-500">BEARING</div>
+                        <div className="font-bold text-amber-400">{filteredAzimuth.toFixed(1)}°</div>
+                      </div>
+
+                      <button
+                        onClick={() => handlePan(5.0, 0)}
+                        className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px]"
+                        title="Azimuth East"
+                      >
+                        Pan +5° ►
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => handlePan(0, -2.5)}
+                      className="p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-mono font-bold active:scale-95 transition-transform min-h-[44px] min-w-[120px]"
+                      title="Pitch Down"
+                    >
+                      ▼ Elevation -2.5°
+                    </button>
+                  </div>
+
+                  {/* Direct Slider Rails */}
+                  <div className="space-y-3 pt-2 border-t border-slate-800">
+                    <div>
+                      <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
+                        <span>AZIMUTH (0° - 360°)</span>
+                        <span className="text-amber-400 font-bold">{filteredAzimuth.toFixed(1)}°</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="359.9"
+                        step="0.5"
+                        value={filteredAzimuth}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setRawAzimuth(val);
+                          setFilteredAzimuth(val);
+                        }}
+                        className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
+                        <span>PITCH ELEVATION (-90° to +90°)</span>
+                        <span className="text-amber-400 font-bold">{filteredPitch >= 0 ? '+' : ''}{filteredPitch.toFixed(1)}°</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-90"
+                        max="90"
+                        step="0.5"
+                        value={filteredPitch}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setRawPitch(val);
+                          setFilteredPitch(val);
+                        }}
+                        className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Trigonometry Computed Metrics Grid */}
-                {(() => {
-                  const pitchRad = (filteredPitch * Math.PI) / 180.0;
-                  const vd = baselineDistance * Math.tan(pitchRad);
-                  const hd = baselineDistance;
-                  const cosPitch = Math.abs(Math.cos(pitchRad));
-                  const sd = cosPitch > 0.001 ? baselineDistance / cosPitch : baselineDistance;
-                  return (
-                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                      <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-[9px] text-slate-500 block">BASE DIST (GROUND)</span>
-                        <span className="text-white font-bold">{baselineDistance.toFixed(2)} m</span>
-                      </div>
-                      <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-[9px] text-slate-500 block">HORIZ DIST (HD)</span>
-                        <span className="text-cyan-400 font-bold">{hd.toFixed(2)} m</span>
-                      </div>
-                      <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-[9px] text-slate-500 block">VERTICAL HEIGHT (VD)</span>
-                        <span className="text-emerald-400 font-bold">{vd >= 0 ? '+' : ''}{vd.toFixed(2)} m</span>
-                      </div>
-                      <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-[9px] text-slate-500 block">SLOPE DIST (SD)</span>
-                        <span className="text-amber-400 font-bold">{sd.toFixed(2)} m</span>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Prominent Edit Baseline Distance Button (Desktop Panel) */}
-                <button
-                  onClick={() => {
-                    setBaselineInputText(baselineDistance.toString());
-                    setIsBaselineModalOpen(true);
-                  }}
-                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-800 text-cyan-400 border border-cyan-500/40 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-2 transition-colors min-h-[40px]"
-                >
-                  <Ruler className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>EDIT BASE DISTANCE [{baselineDistance.toFixed(1)} m]</span>
-                </button>
-
-                {/* GNSS Coords */}
-                <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-1 border-t border-slate-800">
-                  <div className="p-2 bg-slate-950/60 rounded border border-slate-800/80">
-                    <span className="text-[9px] text-slate-500 block">LATITUDE</span>
-                    <span className="text-slate-200">{latitude.toFixed(6)}°</span>
+                {/* Station Geodetic Position Card & Total Station Controls */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-semibold text-slate-200 font-mono uppercase tracking-wide flex items-center gap-1.5">
+                      <Calculator className="w-3.5 h-3.5 text-cyan-400" />
+                      Total Station Spatial Analysis
+                    </h3>
+                    <span className="text-[10px] font-mono text-cyan-400 px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800">
+                      NEZ GRID
+                    </span>
                   </div>
-                  <div className="p-2 bg-slate-950/60 rounded border border-slate-800/80">
-                    <span className="text-[9px] text-slate-500 block">LONGITUDE</span>
-                    <span className="text-slate-200">{longitude.toFixed(6)}°</span>
+
+                  {/* Trigonometry & Local NEZ Computed Metrics Grid */}
+                  {(() => {
+                    const pitchRad = (filteredPitch * Math.PI) / 180.0;
+                    const azRad = (filteredAzimuth * Math.PI) / 180.0;
+                    const hd = baselineDistance;
+                    const rawVD = baselineDistance * Math.tan(pitchRad);
+                    const trueDeltaZ = rawVD + instrumentHeight - targetHeight;
+                    const trueElev = altitude + trueDeltaZ;
+                    const northing = hd * Math.cos(azRad);
+                    const easting = hd * Math.sin(azRad);
+                    const cosPitch = Math.abs(Math.cos(pitchRad));
+                    const sd = cosPitch > 0.001 ? baselineDistance / cosPitch : baselineDistance;
+                    return (
+                      <div className="space-y-2 text-xs font-mono">
+                        {/* NEZ Coordinates */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">NORTHING (N)</span>
+                            <span className="text-emerald-400 font-bold text-[11px]">
+                              {northing >= 0 ? '+' : ''}{northing.toFixed(2)}m
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">EASTING (E)</span>
+                            <span className="text-sky-400 font-bold text-[11px]">
+                              {easting >= 0 ? '+' : ''}{easting.toFixed(2)}m
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">TRUE ELEV (Z)</span>
+                            <span className="text-amber-400 font-bold text-[11px]">
+                              {trueElev.toFixed(2)}m
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Relative Distances & Calibrations */}
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">DELTA ELEV (ΔZ)</span>
+                            <span className="text-emerald-300 font-bold">
+                              {trueDeltaZ >= 0 ? '+' : ''}{trueDeltaZ.toFixed(2)} m
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">SLOPE DIST (SD)</span>
+                            <span className="text-amber-300 font-bold">{sd.toFixed(2)} m</span>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">INSTRUMENT HT (HI)</span>
+                            <span className="text-white font-semibold">{instrumentHeight.toFixed(2)} m</span>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800">
+                            <span className="text-[8px] text-slate-500 block">REFLECTOR HT (HR)</span>
+                            <span className="text-white font-semibold">{targetHeight.toFixed(2)} m</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Calibration Action */}
+                  <button
+                    onClick={() => {
+                      setHiInputText(instrumentHeight.toString());
+                      setHrInputText(targetHeight.toString());
+                      setBaselineInputText(baselineDistance.toString());
+                      setIsCalibrationModalOpen(true);
+                    }}
+                    className="w-full py-2 px-3 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-amber-500/40 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-2 transition-colors min-h-[38px]"
+                  >
+                    <TuneSliders className="w-3.5 h-3.5 text-amber-400" />
+                    <span>CALIBRATE INSTRUMENT (HI / HR / BASE)</span>
+                  </button>
+
+                  {/* GNSS Coords */}
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-1 border-t border-slate-800">
+                    <div className="p-2 bg-slate-950/60 rounded border border-slate-800/80">
+                      <span className="text-[9px] text-slate-500 block">LATITUDE</span>
+                      <span className="text-slate-200">{latitude.toFixed(6)}°</span>
+                    </div>
+                    <div className="p-2 bg-slate-950/60 rounded border border-slate-800/80">
+                      <span className="text-[9px] text-slate-500 block">LONGITUDE</span>
+                      <span className="text-slate-200">{longitude.toFixed(6)}°</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -936,6 +1161,113 @@ export default function App() {
                 className="flex-1 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono font-bold rounded-lg text-xs shadow-md shadow-cyan-500/20 transition-all"
               >
                 APPLY DISTANCE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Instrument Height (HI) & Target Height (HR) Calibration Modal Dialog */}
+      {isCalibrationModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-amber-500/60 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <TuneSliders className="w-4 h-4 text-amber-400" />
+                <h3 className="text-sm font-bold text-slate-100 font-mono">Instrument & Target Calibration</h3>
+              </div>
+              <button
+                onClick={() => setIsCalibrationModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white rounded"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Configure true optical vertical offsets to factor Instrument Height (HI) and Reflector Height (HR) into relative elevation calculations:
+              <br />
+              <span className="text-amber-300 font-mono text-[11px] block mt-1">
+                True ΔZ = Baseline × tan(θ) + HI - HR
+              </span>
+            </p>
+
+            <div className="space-y-3 font-mono text-xs">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  1. Instrument Height (HI) - Ground to Phone Camera Lens:
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={hiInputText}
+                    onChange={(e) => setHiInputText(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-amber-400 focus:outline-none focus:border-amber-500"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-500">meters</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  2. Reflector / Target Height (HR) - Ground to Target Center / Rod:
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={hrInputText}
+                    onChange={(e) => setHrInputText(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-cyan-400 focus:outline-none focus:border-cyan-500"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-500">meters</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">
+                  3. Baseline Ground Distance:
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={baselineInputText}
+                    onChange={(e) => setBaselineInputText(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-500">meters</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setIsCalibrationModalOpen(false)}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono font-semibold rounded-lg text-xs transition-colors"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => {
+                  const hiVal = parseFloat(hiInputText);
+                  const hrVal = parseFloat(hrInputText);
+                  const baseVal = parseFloat(baselineInputText);
+
+                  if (!isNaN(hiVal) && hiVal >= 0) setInstrumentHeight(hiVal);
+                  if (!isNaN(hrVal) && hrVal >= 0) setTargetHeight(hrVal);
+                  if (!isNaN(baseVal) && baseVal > 0.1) setBaselineDistance(baseVal);
+
+                  setIsCalibrationModalOpen(false);
+                  showToast(`Calibrated: HI ${hiVal.toFixed(2)}m, HR ${hrVal.toFixed(2)}m`);
+                }}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold rounded-lg text-xs shadow-md shadow-amber-500/20 transition-all"
+              >
+                APPLY CALIBRATION
               </button>
             </div>
           </div>

@@ -12,6 +12,9 @@ export interface TelemetryState {
 interface TheodoliteCanvasProps {
   telemetry: TelemetryState;
   baselineDistance?: number;
+  instrumentHeight?: number; // HI in meters
+  targetHeight?: number;     // HR in meters
+  featureCode?: 'BM' | 'BND' | 'TOPO' | 'UTIL';
   latitude: number | null;
   longitude: number | null;
   altitude: number | null;
@@ -26,6 +29,9 @@ interface TheodoliteCanvasProps {
 export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
   telemetry,
   baselineDistance = 25.0,
+  instrumentHeight = 1.55,
+  targetHeight = 1.60,
+  featureCode = 'TOPO',
   latitude,
   longitude,
   altitude,
@@ -93,21 +99,38 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
       // 5. Pitch Ladder on Right
       drawPitchLadder(ctx, width, height, telemetry.pitch, reticleColor, scale);
 
-      // 6. Total Station Trigonometry Real-Time Calculations
+      // 6. Total Station Trigonometry Real-Time Calculations with HI & HR Calibration
       const pitchRad = (telemetry.pitch * Math.PI) / 180.0;
-      const verticalDist = baselineDistance * Math.tan(pitchRad);
+      const azRad = (telemetry.azimuth * Math.PI) / 180.0;
       const horizontalDist = baselineDistance;
+      const rawVD = baselineDistance * Math.tan(pitchRad);
+      // True relative elevation factoring Instrument Height (HI) and Reflector Height (HR)
+      const trueDeltaZ = rawVD + instrumentHeight - targetHeight;
+      const trueElevation = (altitude ?? 100.0) + trueDeltaZ;
       const cosPitch = Math.abs(Math.cos(pitchRad));
       const slopeDist = cosPitch > 0.001 ? baselineDistance / cosPitch : baselineDistance;
+
+      // Dynamic Local Coordinate System (NEZ Grid Offsets)
+      // Northing = HD * cos(Azimuth)
+      // Easting  = HD * sin(Azimuth)
+      const northingOffset = horizontalDist * Math.cos(azRad);
+      const eastingOffset = horizontalDist * Math.sin(azRad);
 
       drawTotalStationTrigHUD(
         ctx,
         width,
         height,
         baselineDistance,
-        verticalDist,
+        rawVD,
+        trueDeltaZ,
         horizontalDist,
         slopeDist,
+        instrumentHeight,
+        targetHeight,
+        northingOffset,
+        eastingOffset,
+        trueElevation,
+        featureCode,
         scale
       );
 
@@ -122,7 +145,20 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [telemetry, baselineDistance, latitude, longitude, altitude, zoomFactor, isTargetLocked, useSyntheticCamera, videoRef]);
+  }, [
+    telemetry,
+    baselineDistance,
+    instrumentHeight,
+    targetHeight,
+    featureCode,
+    latitude,
+    longitude,
+    altitude,
+    zoomFactor,
+    isTargetLocked,
+    useSyntheticCamera,
+    videoRef,
+  ]);
 
   // Touch and pointer dragging to pan orientation directly on canvas
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -613,16 +649,78 @@ function drawTotalStationTrigHUD(
   width: number,
   height: number,
   baseline: number,
-  vd: number,
+  rawVd: number,
+  trueDeltaZ: number,
   hd: number,
   sd: number,
+  instrumentHeight: number,
+  targetHeight: number,
+  northing: number,
+  easting: number,
+  trueElevation: number,
+  featureCode: 'BM' | 'BND' | 'TOPO' | 'UTIL',
   scale: number
 ) {
   const isMobile = width < 540;
   ctx.save();
 
+  // Color per feature code
+  const codeColor =
+    featureCode === 'BM'
+      ? '#f59e0b'
+      : featureCode === 'BND'
+      ? '#10b981'
+      : featureCode === 'UTIL'
+      ? '#a855f7'
+      : '#06b6d4';
+
   if (isMobile) {
-    // Compact banner right above the bottom telemetry HUD
+    // Mobile Top Compact NEZ Grid Stream Banner
+    const topNezY = 46;
+    const bannerH = 34;
+    const bannerPad = 8;
+    const bannerW = width - bannerPad * 2;
+
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.92)';
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(bannerPad, topNezY, bannerW, bannerH, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // Feature code pill
+    ctx.fillStyle = `${codeColor}26`;
+    ctx.strokeStyle = codeColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(bannerPad + 6, topNezY + 7, 34, 20, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = codeColor;
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(featureCode, bannerPad + 23, topNezY + 20);
+
+    // Live NEZ coordinates in monospace
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+
+    const nSign = northing >= 0 ? '+' : '';
+    const eSign = easting >= 0 ? '+' : '';
+    const zSign = trueDeltaZ >= 0 ? '+' : '';
+
+    ctx.fillStyle = '#34d399';
+    ctx.fillText(`N:${nSign}${northing.toFixed(1)}m`, bannerPad + 46, topNezY + 20);
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`E:${eSign}${easting.toFixed(1)}m`, bannerPad + bannerW * 0.44, topNezY + 20);
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText(`Z:${trueElevation.toFixed(1)}m`, bannerPad + bannerW * 0.73, topNezY + 20);
+
+    // Bottom Baseline & Height Bar above telemetry HUD
     const hudHeight = 64;
     const trigH = 26;
     const trigY = height - hudHeight - 10 - trigH - 6;
@@ -637,23 +735,23 @@ function drawTotalStationTrigHUD(
     ctx.fill();
     ctx.stroke();
 
-    const vdSign = vd >= 0 ? '+' : '';
     ctx.fillStyle = '#06b6d4';
-    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`BASE: ${baseline.toFixed(1)}m`, trigPad + 8, trigY + 17);
+    ctx.fillText(`BASE: ${baseline.toFixed(1)}m`, trigPad + 6, trigY + 17);
 
     ctx.fillStyle = '#10b981';
-    ctx.fillText(`VD: ${vdSign}${vd.toFixed(2)}m`, trigPad + trigW * 0.38, trigY + 17);
+    ctx.fillText(`ΔZ: ${zSign}${trueDeltaZ.toFixed(2)}m`, trigPad + trigW * 0.35, trigY + 17);
 
-    ctx.fillStyle = '#f59e0b';
-    ctx.fillText(`HD: ${hd.toFixed(1)}m`, trigPad + trigW * 0.72, trigY + 17);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '8px "JetBrains Mono", monospace';
+    ctx.fillText(`HI:${instrumentHeight.toFixed(2)} HR:${targetHeight.toFixed(2)}`, trigPad + trigW * 0.65, trigY + 17);
   } else {
     // Desktop / Tablet Total Station Box (Top-Left)
     const top = 56;
     const left = 18;
-    const boxW = 210;
-    const boxH = 68;
+    const boxW = 230;
+    const boxH = 108;
 
     ctx.fillStyle = 'rgba(2, 6, 23, 0.92)';
     ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
@@ -663,42 +761,74 @@ function drawTotalStationTrigHUD(
     ctx.fill();
     ctx.stroke();
 
-    // Title
+    // Title & Feature Code Pill
     ctx.fillStyle = '#06b6d4';
     ctx.font = 'bold 8px "JetBrains Mono", monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('TOTAL STATION ANALYSIS', left + 10, top + 14);
+    ctx.fillText('TOTAL STATION ANALYSIS', left + 10, top + 15);
 
-    // Baseline & HD
+    // Code pill badge
+    ctx.fillStyle = `${codeColor}26`;
+    ctx.strokeStyle = codeColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(left + boxW - 54, top + 6, 44, 16, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = codeColor;
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(featureCode, left + boxW - 32, top + 17);
+
+    // Local Grid NEZ coordinates row
+    const nSign = northing >= 0 ? '+' : '';
+    const eSign = easting >= 0 ? '+' : '';
+    const zSign = trueDeltaZ >= 0 ? '+' : '';
+
     ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
     ctx.font = '7px "JetBrains Mono", monospace';
-    ctx.fillText('BASE DIST', left + 10, top + 26);
-    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.fillText('NORTHING (N)', left + 10, top + 31);
+    ctx.fillStyle = '#34d399';
     ctx.font = 'bold 11px "JetBrains Mono", monospace';
-    ctx.fillText(`${baseline.toFixed(2)} m`, left + 10, top + 39);
+    ctx.fillText(`${nSign}${northing.toFixed(2)} m`, left + 10, top + 44);
 
     ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
     ctx.font = '7px "JetBrains Mono", monospace';
-    ctx.fillText('HORIZ (HD)', left + 10, top + 50);
+    ctx.fillText('EASTING (E)', left + 120, top + 31);
     ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 10px "JetBrains Mono", monospace';
-    ctx.fillText(`${hd.toFixed(2)} m`, left + 10, top + 61);
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
+    ctx.fillText(`${eSign}${easting.toFixed(2)} m`, left + 120, top + 44);
 
-    // VD (Height) & SD (Slope)
-    const vdSign = vd >= 0 ? '+' : '';
+    // Second Row: True Elevation Z & Relative ΔZ
     ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
     ctx.font = '7px "JetBrains Mono", monospace';
-    ctx.fillText('HEIGHT (VD)', left + 110, top + 26);
+    ctx.fillText('TRUE ELEV (Z)', left + 10, top + 59);
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
+    ctx.fillText(`${trueElevation.toFixed(2)} m`, left + 10, top + 72);
+
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.font = '7px "JetBrains Mono", monospace';
+    ctx.fillText('HEIGHT DIFF (ΔZ)', left + 120, top + 59);
     ctx.fillStyle = '#10b981';
     ctx.font = 'bold 11px "JetBrains Mono", monospace';
-    ctx.fillText(`${vdSign}${vd.toFixed(2)} m`, left + 110, top + 39);
+    ctx.fillText(`${zSign}${trueDeltaZ.toFixed(2)} m`, left + 120, top + 72);
 
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
-    ctx.font = '7px "JetBrains Mono", monospace';
-    ctx.fillText('SLOPE (SD)', left + 110, top + 50);
-    ctx.fillStyle = '#f59e0b';
-    ctx.font = 'bold 10px "JetBrains Mono", monospace';
-    ctx.fillText(`${sd.toFixed(2)} m`, left + 110, top + 61);
+    // Third Row: Baseline, HD, SD, HI, HR
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.6)';
+    ctx.beginPath();
+    ctx.moveTo(left + 10, top + 80);
+    ctx.lineTo(left + boxW - 10, top + 80);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
+    ctx.font = '7.5px "JetBrains Mono", monospace';
+    ctx.fillText(`BASE: ${baseline.toFixed(1)}m | HD: ${hd.toFixed(1)}m | SD: ${sd.toFixed(1)}m`, left + 10, top + 92);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '7.5px "JetBrains Mono", monospace';
+    ctx.fillText(`HI: ${instrumentHeight.toFixed(2)}m  HR: ${targetHeight.toFixed(2)}m (Calibrated)`, left + 10, top + 102);
   }
 
   ctx.restore();
