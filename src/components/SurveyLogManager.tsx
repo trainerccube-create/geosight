@@ -58,7 +58,7 @@ export const SurveyLogManager: React.FC<SurveyLogManagerProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState<SurveyRecord | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [reportTab, setReportTab] = useState<'csv' | 'kml'>('csv');
+  const [reportTab, setReportTab] = useState<'csv' | 'kml' | 'dxf'>('csv');
   const [copiedFormat, setCopiedFormat] = useState<string | null>(null);
 
   const filteredEntries = entries.filter(
@@ -188,10 +188,64 @@ ${placemarks}
 </kml>`;
   };
 
-  const handleDownload = (format: 'csv' | 'kml') => {
+  // Generate native AutoCAD / Civil3D Drawing Exchange Format (DXF)
+  const generateDXF = (): string => {
+    const lines: string[] = [];
+    lines.push('0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC');
+    lines.push('0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n5');
+    lines.push('0\nLAYER\n2\nBM\n70\n0\n62\n2\n6\nCONTINUOUS');
+    lines.push('0\nLAYER\n2\nBND\n70\n0\n62\n3\n6\nCONTINUOUS');
+    lines.push('0\nLAYER\n2\nTOPO\n70\n0\n62\n4\n6\nCONTINUOUS');
+    lines.push('0\nLAYER\n2\nUTIL\n70\n0\n62\n6\n6\nCONTINUOUS');
+    lines.push('0\nLAYER\n2\nLABELS\n70\n0\n62\n7\n6\nCONTINUOUS');
+    lines.push('0\nENDTAB\n0\nENDSEC');
+    lines.push('0\nSECTION\n2\nENTITIES');
+
+    entries.forEach((e) => {
+      const code = e.featureCode || 'TOPO';
+      const east = (e.easting ?? 0).toFixed(4);
+      const north = (e.northing ?? 0).toFixed(4);
+      const elev = (e.trueElevation ?? e.altitude).toFixed(4);
+
+      lines.push('0\nPOINT');
+      lines.push(`8\n${code}`);
+      lines.push(`10\n${east}`);
+      lines.push(`20\n${north}`);
+      lines.push(`30\n${elev}`);
+
+      lines.push('0\nTEXT');
+      lines.push('8\nLABELS');
+      lines.push(`10\n${((e.easting ?? 0) + 0.4).toFixed(4)}`);
+      lines.push(`20\n${((e.northing ?? 0) + 0.4).toFixed(4)}`);
+      lines.push(`30\n${elev}`);
+      lines.push('40\n0.6');
+      lines.push(`1\n#${e.id} ${code} (Z=${(e.trueElevation ?? e.altitude).toFixed(2)}m)`);
+    });
+
+    if (entries.length >= 3) {
+      lines.push('0\nPOLYLINE\n8\nBOUNDARY_LINE\n66\n1\n70\n1');
+      entries.forEach((e) => {
+        lines.push('0\nVERTEX\n8\nBOUNDARY_LINE');
+        lines.push(`10\n${(e.easting ?? 0).toFixed(4)}`);
+        lines.push(`20\n${(e.northing ?? 0).toFixed(4)}`);
+        lines.push(`30\n${(e.trueElevation ?? e.altitude).toFixed(4)}`);
+      });
+      lines.push('0\nSEQEND');
+    }
+
+    lines.push('0\nENDSEC\n0\nEOF');
+    return lines.join('\n');
+  };
+
+  const handleDownload = (format: 'csv' | 'kml' | 'dxf') => {
     if (entries.length === 0) return;
-    const content = format === 'csv' ? generateCSV() : generateKML();
-    const mime = format === 'csv' ? 'text/csv;charset=utf-8;' : 'application/vnd.google-earth.kml+xml;charset=utf-8;';
+    const content = format === 'csv' ? generateCSV() : format === 'kml' ? generateKML() : generateDXF();
+    const mime =
+      format === 'csv'
+        ? 'text/csv;charset=utf-8;'
+        : format === 'kml'
+        ? 'application/vnd.google-earth.kml+xml;charset=utf-8;'
+        : 'application/dxf;charset=utf-8;';
     const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -202,8 +256,8 @@ ${placemarks}
     document.body.removeChild(link);
   };
 
-  const handleCopy = (format: 'csv' | 'kml') => {
-    const text = format === 'csv' ? generateCSV() : generateKML();
+  const handleCopy = (format: 'csv' | 'kml' | 'dxf') => {
+    const text = format === 'csv' ? generateCSV() : format === 'kml' ? generateKML() : generateDXF();
     navigator.clipboard.writeText(text);
     setCopiedFormat(format);
     setTimeout(() => setCopiedFormat(null), 2500);
@@ -500,8 +554,8 @@ ${placemarks}
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-cyan-400" />
                 <div>
-                  <h3 className="font-bold text-white text-sm">Multi-Format Spatial Data Report Engine</h3>
-                  <p className="text-[10px] text-slate-400">Generate clean CSV and Google Earth KML geometric structures.</p>
+                  <h3 className="font-bold text-white text-sm">Enterprise Multi-Format Export Engine</h3>
+                  <p className="text-[10px] text-slate-400">Generate clean CSV, raw AutoCAD DXF (Civil3D), and Google Earth KML geometric structures.</p>
                 </div>
               </div>
               <button
@@ -524,7 +578,18 @@ ${placemarks}
                   }`}
                 >
                   <FileText className="w-3.5 h-3.5" />
-                  CSV Data Table ({entries.length} rows)
+                  CSV Data Table ({entries.length})
+                </button>
+                <button
+                  onClick={() => setReportTab('dxf')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                    reportTab === 'dxf'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  AutoCAD DXF
                 </button>
                 <button
                   onClick={() => setReportTab('kml')}
@@ -535,7 +600,7 @@ ${placemarks}
                   }`}
                 >
                   <Globe className="w-3.5 h-3.5" />
-                  Google Earth KML ({entries.length} Placemarks)
+                  Google Earth KML
                 </button>
               </div>
 
@@ -569,7 +634,7 @@ ${placemarks}
             {/* Code / Report Preview Area */}
             <div className="p-4 flex-1 overflow-auto bg-slate-950 font-mono text-[11px] leading-relaxed text-slate-300">
               <pre className="whitespace-pre overflow-x-auto selection:bg-cyan-900 selection:text-white">
-                {reportTab === 'csv' ? generateCSV() : generateKML()}
+                {reportTab === 'csv' ? generateCSV() : reportTab === 'kml' ? generateKML() : generateDXF()}
               </pre>
             </div>
 

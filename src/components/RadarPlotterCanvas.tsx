@@ -228,6 +228,78 @@ export const RadarPlotterCanvas: React.FC<RadarPlotterCanvasProps> = ({
         tagY + 24
       );
 
+      // 3D Polyline Boundary & Volumetric Area (Shoelace Formula) if >= 3 stations
+      if (entries.length >= 3) {
+        let shoelaceSum = 0;
+        let perimeter = 0;
+        let elevSum = 0;
+        let minZ = entries[0].trueElevation ?? entries[0].altitude;
+        let maxZ = minZ;
+
+        ctx.beginPath();
+        entries.forEach((entry, i) => {
+          const ptN = entry.northing ?? 0;
+          const ptE = entry.easting ?? 0;
+          const ptX = centerX + ptE * ppm;
+          const ptY = centerY - ptN * ppm;
+
+          if (i === 0) {
+            ctx.moveTo(ptX, ptY);
+          } else {
+            ctx.lineTo(ptX, ptY);
+          }
+
+          const next = (i + 1) % entries.length;
+          const nextN = entries[next].northing ?? 0;
+          const nextE = entries[next].easting ?? 0;
+          shoelaceSum += ptE * nextN - nextE * ptN;
+
+          const edge = Math.sqrt((nextE - ptE) ** 2 + (nextN - ptN) ** 2);
+          perimeter += edge;
+
+          const z = entry.trueElevation ?? entry.altitude;
+          elevSum += z;
+          if (z < minZ) minZ = z;
+          if (z > maxZ) maxZ = z;
+        });
+
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
+        ctx.fill();
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([4, 2]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const surfaceAreaSqM = Math.abs(shoelaceSum) / 2;
+        const meanZ = elevSum / entries.length;
+        const estimatedVolumeCuM = surfaceAreaSqM * Math.max(0, meanZ - minZ);
+
+        // Area & Volume badge at top left of radar canvas
+        const areaBadgeX = 14;
+        const areaBadgeY = 14;
+        const areaBadgeW = 210;
+        const areaBadgeH = 34;
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(areaBadgeX, areaBadgeY, areaBadgeW, areaBadgeH, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#10b981';
+        ctx.font = 'bold 9px "JetBrains Mono", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`3D BOUNDARY POLYGON (${entries.length} PTS)`, areaBadgeX + 8, areaBadgeY + 13);
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = '8.5px "JetBrains Mono", monospace';
+        ctx.fillText(`AREA: ${surfaceAreaSqM.toFixed(1)} m² | VOL: ${estimatedVolumeCuM.toFixed(1)} m³`, areaBadgeX + 8, areaBadgeY + 26);
+      }
+
       // Plot all Logged Survey Station Coordinates
       entries.forEach((entry, idx) => {
         const ptN = entry.northing ?? 0;
