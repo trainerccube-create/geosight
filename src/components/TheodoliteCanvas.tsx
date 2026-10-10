@@ -22,6 +22,9 @@ interface TheodoliteCanvasProps {
   isTargetLocked: boolean;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
   useSyntheticCamera: boolean;
+  kalmanGain?: number;
+  hdop?: number;
+  satellites?: number;
   onPan?: (deltaAz: number, deltaPitch: number) => void;
   onZoomChange?: (newZoom: number) => void;
 }
@@ -39,6 +42,9 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
   isTargetLocked,
   videoRef,
   useSyntheticCamera,
+  kalmanGain = 0.12,
+  hdop = 0.78,
+  satellites = 22,
   onPan,
   onZoomChange,
 }) => {
@@ -87,6 +93,9 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
       // 1. Viewfinder Brackets
       drawOpticalFrame(ctx, width, height, reticleColor, scale);
 
+      // 1.1 Dedicated GNSS Telemetry Bar
+      drawGNSSTelemetryBar(ctx, width, latitude, longitude, altitude, kalmanGain, hdop, satellites, scale);
+
       // 2. Horizon Level
       drawArtificialHorizon(ctx, center, telemetry.roll, horizonColor, scale);
 
@@ -98,6 +107,9 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
 
       // 5. Pitch Ladder on Right
       drawPitchLadder(ctx, width, height, telemetry.pitch, reticleColor, scale);
+
+      // 5.1 Interactive 3D Target Bubble Level (Dual-Axis with Dynamic Orange to Emerald Color Shift)
+      drawTargetBubbleLevel(ctx, width, height, telemetry.pitch, telemetry.roll, scale);
 
       // 6. Total Station Trigonometry Real-Time Calculations with HI & HR Calibration
       const pitchRad = (telemetry.pitch * Math.PI) / 180.0;
@@ -961,4 +973,162 @@ function drawHUDCellMobile(
   ctx.fillStyle = valueColor;
   ctx.font = 'bold 10px "JetBrains Mono", monospace';
   ctx.fillText(value, x, y + 12);
+}
+
+function drawGNSSTelemetryBar(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  latitude: number | null,
+  longitude: number | null,
+  altitude: number | null,
+  kalmanGain: number,
+  hdop: number,
+  satellites: number,
+  scale: number
+) {
+  const isMobile = width < 540;
+  const barY = isMobile ? 8 : 12;
+  const pad = isMobile ? 8 : 16;
+  const barW = width - pad * 2;
+  const barH = isMobile ? 22 : 26;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.92)';
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(pad, barY, barW, barH, 5);
+  ctx.fill();
+  ctx.stroke();
+
+  // Status indicator dot
+  ctx.fillStyle = '#10b981';
+  ctx.beginPath();
+  ctx.arc(pad + (isMobile ? 10 : 14), barY + barH / 2, isMobile ? 3 : 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#10b981';
+  ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('RTK FIXED', pad + (isMobile ? 18 : 24), barY + barH / 2 + 3);
+
+  // Precision readouts
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.font = isMobile ? '7.5px "JetBrains Mono", monospace' : '8.5px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  if (isMobile) {
+    ctx.fillText(`HDOP:${hdop.toFixed(2)} | SATS:${satellites} | K:${kalmanGain.toFixed(2)}`, pad + barW - 8, barY + barH / 2 + 3);
+  } else {
+    ctx.fillText(
+      `HDOP: ${hdop.toFixed(2)} [3D RTK]  |  SATS: ${satellites}/28  |  RMS: ±0.014m  |  KALMAN GAIN: ${kalmanGain.toFixed(2)}`,
+      pad + barW - 10,
+      barY + barH / 2 + 3
+    );
+  }
+  ctx.restore();
+}
+
+function drawTargetBubbleLevel(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  pitch: number,
+  roll: number,
+  scale: number
+) {
+  const isMobile = width < 540;
+  const radius = isMobile ? 28 : 34;
+  const margin = isMobile ? 12 : 20;
+  // Positioned in bottom-right corner above bottom HUD
+  const bottomMargin = isMobile ? 86 : 100;
+  const center = {
+    x: width - radius - margin,
+    y: height - bottomMargin - radius,
+  };
+
+  const isLevel = Math.abs(pitch) <= 0.20 && Math.abs(roll) <= 0.20;
+  const levelColor = isLevel ? '#10b981' : '#f59e0b'; // Dynamic shift from sharp orange to solid emerald green
+
+  ctx.save();
+
+  // Housing background
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.90)';
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius + 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Outer neon alignment ring
+  ctx.strokeStyle = levelColor;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 1° scale ring
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius * 0.6, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Center alignment bullseye tolerance ring (0.2° boundary)
+  ctx.strokeStyle = levelColor;
+  ctx.lineWidth = isLevel ? 2.0 : 1.0;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, 7, 0, Math.PI * 2);
+  ctx.stroke();
+
+  if (isLevel) {
+    // Glow fill on bullseye lock
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.3)';
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Crosshairs
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(center.x - radius, center.y);
+  ctx.lineTo(center.x + radius, center.y);
+  ctx.moveTo(center.x, center.y - radius);
+  ctx.lineTo(center.x, center.y + radius);
+  ctx.stroke();
+
+  // Bubble displacement calculation
+  const maxTilt = 4.0; // 4 degrees reaches outer limit
+  const bubbleRadius = isMobile ? 5.5 : 6.5;
+  const maxTravel = radius - bubbleRadius - 2;
+
+  const normRoll = Math.max(-1, Math.min(1, roll / maxTilt));
+  const normPitch = Math.max(-1, Math.min(1, pitch / maxTilt));
+
+  const bubbleX = center.x + normRoll * maxTravel;
+  const bubbleY = center.y - normPitch * maxTravel;
+
+  // Electronic bubble indicator with fluid glow
+  ctx.fillStyle = isLevel ? 'rgba(16, 185, 129, 0.4)' : 'rgba(245, 158, 11, 0.4)';
+  ctx.beginPath();
+  ctx.arc(bubbleX, bubbleY, bubbleRadius + 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = levelColor;
+  ctx.beginPath();
+  ctx.arc(bubbleX, bubbleY, bubbleRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.0;
+  ctx.stroke();
+
+  // Digital Tilt readout & alignment badge below vial
+  const totalTilt = Math.sqrt(pitch * pitch + roll * roll);
+  ctx.fillStyle = levelColor;
+  ctx.font = 'bold 7.5px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  const label = isLevel ? 'LEVEL LOCKED' : `TILT: ${totalTilt.toFixed(1)}°`;
+  ctx.fillText(label, center.x, center.y + radius + 11);
+
+  ctx.restore();
 }

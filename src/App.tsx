@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TheodoliteCanvas, TelemetryState } from './components/TheodoliteCanvas';
 import { RadarPlotterCanvas } from './components/RadarPlotterCanvas';
+import { StakeoutCanvas } from './components/StakeoutCanvas';
 import { SensorsPlayground } from './components/SensorsPlayground';
 import { SurveyLogManager, SurveyRecord } from './components/SurveyLogManager';
 import { FlutterCodeViewer } from './components/FlutterCodeViewer';
@@ -28,19 +29,47 @@ import {
   X,
   Radar,
   SlidersHorizontal,
-  Sliders as TuneSliders
+  Sliders as TuneSliders,
+  Volume2,
+  VolumeX,
+  Crosshair,
+  Target,
+  Radio,
 } from 'lucide-react';
 
 export default function App() {
   // Navigation active tab
   const [activeTab, setActiveTab] = useState<'viewfinder' | 'lab' | 'code' | 'database'>('viewfinder');
 
-  // Dual Mode HUD Screen: 'camera' (Mode A) vs 'radar' (Mode B)
-  const [hudMode, setHudMode] = useState<'camera' | 'radar'>('camera');
+  // Dual Mode HUD Screen: 'camera' (Mode A) vs 'radar' (Mode B) vs 'stakeout' (Mode C)
+  const [hudMode, setHudMode] = useState<'camera' | 'radar' | 'stakeout'>('camera');
 
   // Filter parameter alpha
   const [alpha, setAlpha] = useState<number>(0.18);
   const [isSimulatingJitter, setIsSimulatingJitter] = useState<boolean>(true);
+
+  // 1D Kalman Filter Parameters & State
+  const [processNoiseQ, setProcessNoiseQ] = useState<number>(0.008);
+  const [measurementNoiseR, setMeasurementNoiseR] = useState<number>(0.08);
+  const [kalmanGain, setKalmanGain] = useState<number>(0.12);
+  const [errorCovarianceP, setErrorCovarianceP] = useState<number>(0.015);
+
+  const kalmanStateRef = useRef({
+    azimuth: { x: 142.4, p: 1.0, k: 0.1 },
+    pitch: { x: 4.2, p: 1.0, k: 0.1 },
+    roll: { x: -1.1, p: 1.0, k: 0.1 },
+  });
+
+  // Stakeout Target & Audio Ping Sonar State
+  const [stakeoutTarget, setStakeoutTarget] = useState({
+    pointId: 'STK-01',
+    northing: 20.0,
+    easting: 15.0,
+    elevation: 50.0,
+  });
+  const [isStakeoutModalOpen, setIsStakeoutModalOpen] = useState<boolean>(false);
+  const [isAudioPingEnabled, setIsAudioPingEnabled] = useState<boolean>(true);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Raw & Filtered Telemetry state
   const [rawAzimuth, setRawAzimuth] = useState<number>(142.4);
@@ -182,20 +211,96 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Circular modulo filter helper
-  const filterAngleCircular = (target: number, current: number, a: number) => {
-    let delta = ((target - current + 180.0) % 360.0) - 180.0;
+  // 1D Kalman Filter Matrix Calculation Helpers
+  const updateKalmanScalar = (z: number, state: { x: number; p: number; k: number }, q: number, r: number) => {
+    // 1. Time update (predict error covariance)
+    state.p = state.p + q;
+    // 2. Kalman Gain: K = P / (P + R)
+    state.k = state.p / (state.p + r);
+    // 3. Measurement update: x = x + K * (z - x)
+    state.x = state.x + state.k * (z - state.x);
+    // 4. Update error covariance: P = (1 - K) * P
+    state.p = (1.0 - state.k) * state.p;
+    return state.x;
+  };
+
+  const updateKalmanCircular = (z: number, state: { x: number; p: number; k: number }, q: number, r: number) => {
+    state.p = state.p + q;
+    state.k = state.p / (state.p + r);
+    let delta = ((z - state.x + 180.0) % 360.0) - 180.0;
     if (delta < -180.0) delta += 360.0;
-    let result = (current + a * delta) % 360.0;
-    if (result < 0.0) result += 360.0;
-    return result;
+    state.x = (state.x + state.k * delta) % 360.0;
+    if (state.x < 0.0) state.x += 360.0;
+    state.p = (1.0 - state.k) * state.p;
+    return state.x;
   };
 
-  const filterScalar = (target: number, current: number, a: number) => {
-    return current + a * (target - current);
-  };
+  // Web Audio API Stakeout Ping Sound Trigger
+  const triggerStakeoutPing = useCallback((dist: number) => {
+    if (!isAudioPingEnabled) return;
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
 
-  // Hardware sensor listener or continuous simulation loop
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      const isOnTarget = dist <= 0.05;
+      const freq = isOnTarget ? 1200 : dist < 0.5 ? 1000 : dist < 1.5 ? 880 : dist < 4.0 ? 750 : 640;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+      const duration = isOnTarget ? 0.08 : 0.04;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+
+      if (navigator.vibrate) {
+        if (isOnTarget) navigator.vibrate(60);
+        else if (dist < 1.0) navigator.vibrate(25);
+        else navigator.vibrate(12);
+      }
+    } catch (err) {
+      // Audio permission or unsupported context
+    }
+  }, [isAudioPingEnabled]);
+
+  // Audio Stakeout Ping Loop with Dynamic Accelerated Interval
+  useEffect(() => {
+    if (hudMode !== 'stakeout' || !isAudioPingEnabled) return;
+
+    let timerId: any;
+    const runPing = () => {
+      const curN = baselineDistance * Math.cos((filteredAzimuth * Math.PI) / 180);
+      const curE = baselineDistance * Math.sin((filteredAzimuth * Math.PI) / 180);
+      const dist = Math.hypot(stakeoutTarget.northing - curN, stakeoutTarget.easting - curE);
+
+      triggerStakeoutPing(dist);
+
+      let nextInterval = 1600;
+      if (dist <= 0.05) nextInterval = 80;
+      else if (dist < 0.4) nextInterval = 140;
+      else if (dist < 1.2) nextInterval = 280;
+      else if (dist < 3.0) nextInterval = 500;
+      else if (dist < 8.0) nextInterval = 950;
+
+      timerId = setTimeout(runPing, nextInterval);
+    };
+
+    timerId = setTimeout(runPing, 400);
+    return () => clearTimeout(timerId);
+  }, [hudMode, isAudioPingEnabled, baselineDistance, filteredAzimuth, stakeoutTarget, triggerStakeoutPing]);
+
+  // Hardware sensor listener or continuous simulation loop with 1D Kalman Array
   useEffect(() => {
     let intervalId: any;
     let noisePhase = 0;
@@ -212,25 +317,30 @@ export default function App() {
       // Base orientation drift or user pan
       setRawAzimuth((prev) => {
         const noisy = (prev + jitterAz * 0.2 + 360) % 360;
-        setFilteredAzimuth((fPrev) => filterAngleCircular(noisy, fPrev, alpha));
+        const filtered = updateKalmanCircular(noisy, kalmanStateRef.current.azimuth, processNoiseQ, measurementNoiseR);
+        setFilteredAzimuth(filtered);
         return noisy;
       });
 
       setRawPitch((prev) => {
         const noisy = Math.max(-89, Math.min(89, prev + jitterPitch * 0.15));
-        setFilteredPitch((fPrev) => filterScalar(noisy, fPrev, alpha));
+        const filtered = updateKalmanScalar(noisy, kalmanStateRef.current.pitch, processNoiseQ, measurementNoiseR);
+        setFilteredPitch(filtered);
+        setKalmanGain(kalmanStateRef.current.pitch.k);
+        setErrorCovarianceP(kalmanStateRef.current.pitch.p);
         return noisy;
       });
 
       setRawRoll((prev) => {
         const noisy = Math.max(-45, Math.min(45, prev + jitterRoll * 0.15));
-        setFilteredRoll((fPrev) => filterScalar(noisy, fPrev, alpha));
+        const filtered = updateKalmanScalar(noisy, kalmanStateRef.current.roll, processNoiseQ, measurementNoiseR);
+        setFilteredRoll(filtered);
         return noisy;
       });
     }, 1000 / 60); // 60 FPS update loop
 
     return () => clearInterval(intervalId);
-  }, [alpha, isSimulatingJitter, isTargetLocked]);
+  }, [processNoiseQ, measurementNoiseR, isSimulatingJitter, isTargetLocked]);
 
   // Request actual device orientation if available on mobile browser
   useEffect(() => {
@@ -244,9 +354,15 @@ export default function App() {
         setRawPitch(devPitch);
         setRawRoll(devRoll);
 
-        setFilteredAzimuth((prev) => filterAngleCircular(devAzimuth, prev, alpha));
-        setFilteredPitch((prev) => filterScalar(devPitch, prev, alpha));
-        setFilteredRoll((prev) => filterScalar(devRoll, prev, alpha));
+        const filteredAz = updateKalmanCircular(devAzimuth, kalmanStateRef.current.azimuth, processNoiseQ, measurementNoiseR);
+        const filteredP = updateKalmanScalar(devPitch, kalmanStateRef.current.pitch, processNoiseQ, measurementNoiseR);
+        const filteredR = updateKalmanScalar(devRoll, kalmanStateRef.current.roll, processNoiseQ, measurementNoiseR);
+
+        setFilteredAzimuth(filteredAz);
+        setFilteredPitch(filteredP);
+        setFilteredRoll(filteredR);
+        setKalmanGain(kalmanStateRef.current.pitch.k);
+        setErrorCovarianceP(kalmanStateRef.current.pitch.p);
       }
     };
 
@@ -515,10 +631,10 @@ export default function App() {
         {/* VIEW 1: LIVE RETICLE VIEWFINDER */}
         {activeTab === 'viewfinder' && (
           <div className="space-y-4">
-            {/* Top Toolbar: Dual Mode HUD Screen Toggle + Feature Code Library + Calibration */}
+            {/* Top Toolbar: Multi-Mode HUD Screen Toggle + Feature Code Library + Calibration */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
-              {/* Dual Mode HUD Toggle (Mode A: Camera HUD vs Mode B: 2D Radar Canvas Plotter) */}
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+              {/* Multi-Mode HUD Toggle (Mode A: Camera HUD | Mode B: 2D Radar Plotter | Mode C: Stakeout Ping) */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 flex-wrap">
                 <button
                   onClick={() => setHudMode('camera')}
                   className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors ${
@@ -539,37 +655,84 @@ export default function App() {
                   }`}
                 >
                   <Radar className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Mode B: 2D Radar Plotter</span>
+                  <span>Mode B: Radar Plotter</span>
+                </button>
+                <button
+                  onClick={() => setHudMode('stakeout')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors ${
+                    hudMode === 'stakeout'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Navigation className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Mode C: Stakeout Ping</span>
                 </button>
               </div>
 
-              {/* Feature Code Selector (BM / BND / TOPO / UTIL) */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mr-1">
-                  Feature Code:
-                </span>
-                {(['BM', 'BND', 'TOPO', 'UTIL'] as const).map((fc) => {
-                  const isSelected = selectedFeatureCode === fc;
-                  let colorClass = 'text-cyan-400 border-cyan-600 bg-cyan-950/40';
-                  if (fc === 'BM') colorClass = 'text-amber-400 border-amber-600 bg-amber-950/40';
-                  if (fc === 'BND') colorClass = 'text-emerald-400 border-emerald-600 bg-emerald-950/40';
-                  if (fc === 'UTIL') colorClass = 'text-purple-400 border-purple-600 bg-purple-950/40';
+              {/* Stakeout Audio Sonar Toggle & Quick Edit */}
+              {hudMode === 'stakeout' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsAudioPingEnabled(!isAudioPingEnabled)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 transition-colors ${
+                      isAudioPingEnabled
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {isAudioPingEnabled ? (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Sonar Ping: Active</span>
+                      </>
+                    ) : (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Sonar Ping: Muted</span>
+                      </>
+                    )}
+                  </button>
 
-                  return (
-                    <button
-                      key={fc}
-                      onClick={() => setSelectedFeatureCode(fc)}
-                      className={`px-2.5 py-1 rounded text-xs font-mono font-bold transition-all border ${
-                        isSelected
-                          ? `${colorClass} ring-1 ring-white/50 shadow-md`
-                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      {fc}
-                    </button>
-                  );
-                })}
-              </div>
+                  <button
+                    onClick={() => setIsStakeoutModalOpen(true)}
+                    className="px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-slate-950 text-cyan-300 hover:text-cyan-200 text-xs font-mono font-bold flex items-center gap-1"
+                  >
+                    <Target className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Target ({stakeoutTarget.pointId})</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Feature Code Selector (BM / BND / TOPO / UTIL) */}
+              {hudMode !== 'stakeout' && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mr-1">
+                    Feature Code:
+                  </span>
+                  {(['BM', 'BND', 'TOPO', 'UTIL'] as const).map((fc) => {
+                    const isSelected = selectedFeatureCode === fc;
+                    let colorClass = 'text-cyan-400 border-cyan-600 bg-cyan-950/40';
+                    if (fc === 'BM') colorClass = 'text-amber-400 border-amber-600 bg-amber-950/40';
+                    if (fc === 'BND') colorClass = 'text-emerald-400 border-emerald-600 bg-emerald-950/40';
+                    if (fc === 'UTIL') colorClass = 'text-purple-400 border-purple-600 bg-purple-950/40';
+
+                    return (
+                      <button
+                        key={fc}
+                        onClick={() => setSelectedFeatureCode(fc)}
+                        className={`px-2.5 py-1 rounded text-xs font-mono font-bold transition-all border ${
+                          isSelected
+                            ? `${colorClass} ring-1 ring-white/50 shadow-md`
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                        }`}
+                      >
+                        {fc}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Instrument Calibration Quick Trigger */}
               <button
@@ -611,10 +774,13 @@ export default function App() {
                       isTargetLocked={isTargetLocked}
                       videoRef={videoRef}
                       useSyntheticCamera={useSyntheticCamera}
+                      kalmanGain={kalmanGain}
+                      hdop={0.78}
+                      satellites={22}
                       onPan={handlePan}
                       onZoomChange={setZoomFactor}
                     />
-                  ) : (
+                  ) : hudMode === 'radar' ? (
                     <RadarPlotterCanvas
                       entries={surveyEntries}
                       currentAzimuth={filteredAzimuth}
@@ -628,6 +794,22 @@ export default function App() {
                           targetHeight)
                       }
                       currentFeatureCode={selectedFeatureCode}
+                    />
+                  ) : (
+                    <StakeoutCanvas
+                      target={stakeoutTarget}
+                      currentNorthing={baselineDistance * Math.cos((filteredAzimuth * Math.PI) / 180)}
+                      currentEasting={baselineDistance * Math.sin((filteredAzimuth * Math.PI) / 180)}
+                      currentElevation={
+                        altitude +
+                        (baselineDistance * Math.tan((filteredPitch * Math.PI) / 180) +
+                          instrumentHeight -
+                          targetHeight)
+                      }
+                      currentAzimuth={filteredAzimuth}
+                      isAudioPingEnabled={isAudioPingEnabled}
+                      onToggleAudioPing={() => setIsAudioPingEnabled(!isAudioPingEnabled)}
+                      onEditTarget={() => setIsStakeoutModalOpen(true)}
                     />
                   )}
 
@@ -982,6 +1164,12 @@ export default function App() {
           <SensorsPlayground
             alpha={alpha}
             onAlphaChange={setAlpha}
+            processNoiseQ={processNoiseQ}
+            onProcessNoiseChange={setProcessNoiseQ}
+            measurementNoiseR={measurementNoiseR}
+            onMeasurementNoiseChange={setMeasurementNoiseR}
+            kalmanGain={kalmanGain}
+            errorCovarianceP={errorCovarianceP}
             isSimulatingJitter={isSimulatingJitter}
             onToggleJitter={setIsSimulatingJitter}
             rawAzimuth={rawAzimuth}
@@ -1274,6 +1462,99 @@ export default function App() {
         </div>
       )}
 
+      {/* Precision Stakeout Target Setup Modal */}
+      {isStakeoutModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-emerald-500/60 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-slate-100 font-mono">Stakeout Target Coordinates</h3>
+              </div>
+              <button
+                onClick={() => setIsStakeoutModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-white rounded"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Enter target design coordinates to engage accelerated audio sonar and directional navigation vectors:
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setIsStakeoutModalOpen(false);
+                setHudMode('stakeout');
+                showToast(`Stakeout engaged: ${stakeoutTarget.pointId}`);
+              }}
+              className="space-y-3 font-mono text-xs"
+            >
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Target Design ID:</label>
+                <input
+                  type="text"
+                  value={stakeoutTarget.pointId}
+                  onChange={(e) => setStakeoutTarget({ ...stakeoutTarget, pointId: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-amber-400 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Target Northing (N) [m]:</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={stakeoutTarget.northing}
+                  onChange={(e) => setStakeoutTarget({ ...stakeoutTarget, northing: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Target Easting (E) [m]:</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={stakeoutTarget.easting}
+                  onChange={(e) => setStakeoutTarget({ ...stakeoutTarget, easting: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-sky-400 focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Target Design Elevation (Z) [m]:</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={stakeoutTarget.elevation}
+                  onChange={(e) => setStakeoutTarget({ ...stakeoutTarget, elevation: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm font-bold text-amber-300 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsStakeoutModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono font-semibold rounded-lg text-xs transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold rounded-lg text-xs shadow-md shadow-emerald-500/20 transition-all"
+                >
+                  ENGAGE STAKEOUT
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Fixed Bottom Navigation Bar (Thumb Zone) */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 h-16 pb-safe grid grid-cols-4 items-center">
         <button
@@ -1326,11 +1607,11 @@ export default function App() {
             GeoSight Production Flutter Architecture · Tested on iOS Metal & Android Vulkan / CanvasKit
           </div>
           <div className="flex items-center gap-4">
-            <span>Low-Pass Filter: α = {alpha.toFixed(2)}</span>
+            <span>1D Kalman Filter Array (Q={processNoiseQ.toFixed(3)}, R={measurementNoiseR.toFixed(2)})</span>
             <span>·</span>
-            <span>RepaintBoundary: 60 FPS</span>
+            <span>3D Electronic Bubble Level: Active</span>
             <span>·</span>
-            <span>SQLite WAL Mode: Active</span>
+            <span>Stakeout Audio Sonar: {isAudioPingEnabled ? 'Pulsing' : 'Muted'}</span>
           </div>
         </div>
       </footer>

@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sliders, Activity, ShieldCheck, Zap, Info, Compass, ShieldAlert } from 'lucide-react';
+import { Sliders, Activity, ShieldCheck, Zap, Info, Compass, ShieldAlert, Cpu, Crosshair } from 'lucide-react';
 
 interface SensorsPlaygroundProps {
   alpha: number;
   onAlphaChange: (alpha: number) => void;
+  processNoiseQ?: number;
+  onProcessNoiseChange?: (q: number) => void;
+  measurementNoiseR?: number;
+  onMeasurementNoiseChange?: (r: number) => void;
+  kalmanGain?: number;
+  errorCovarianceP?: number;
   isSimulatingJitter: boolean;
   onToggleJitter: (val: boolean) => void;
   rawAzimuth: number;
@@ -17,6 +23,12 @@ interface SensorsPlaygroundProps {
 export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
   alpha,
   onAlphaChange,
+  processNoiseQ = 0.008,
+  onProcessNoiseChange,
+  measurementNoiseR = 0.08,
+  onMeasurementNoiseChange,
+  kalmanGain = 0.12,
+  errorCovarianceP = 0.015,
   isSimulatingJitter,
   onToggleJitter,
   rawAzimuth,
@@ -119,7 +131,7 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
 
       // Draw Filtered Signal (Smooth Emerald line)
       ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 2.6;
+      ctx.lineWidth = 2.2;
       ctx.beginPath();
       for (let i = 0; i < filtered.length; i++) {
         const x = (i / 120) * w;
@@ -129,6 +141,16 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
       }
       ctx.stroke();
 
+      // Current values on right
+      const lastFiltered = filtered[filtered.length - 1];
+      if (lastFiltered !== undefined) {
+        const currentY = mapY(lastFiltered);
+        ctx.fillStyle = '#10b981';
+        ctx.beginPath();
+        ctx.arc(w - 6, currentY, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       animId = requestAnimationFrame(renderOsc);
     };
 
@@ -137,18 +159,24 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
   }, []);
 
   const currentJitterDelta = Math.abs(rawAzimuth - filteredAzimuth);
+  const isLevelLocked = Math.abs(filteredPitch) <= 0.20 && Math.abs(filteredRoll) <= 0.20;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-amber-500" />
-            Sensor Fusion & Low-Pass Filter Lab
-          </h3>
+          <div className="flex items-center gap-2">
+            <Cpu className="w-5 h-5 text-amber-500" />
+            <h2 className="text-base sm:text-lg font-bold text-white font-mono">
+              Mathematical Kalman Filter Engine Lab
+            </h2>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              1D STATE ARRAY
+            </span>
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real-time Exponential Moving Average (EMA) and 360° Circular Angle Unwrapping.
+            Real-time Kalman Filter covariance matrix predicting orientation and canceling environmental hand tremors.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -185,7 +213,7 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
             </span>
             <span className="flex items-center gap-1.5 text-slate-300">
               <span className="w-2.5 h-1 bg-emerald-500 rounded-sm inline-block" />
-              Filtered Azimuth (Smooth)
+              Kalman Filtered Signal (Mechanical Precision)
             </span>
           </div>
           <span className="font-mono text-slate-400 text-[11px]">
@@ -201,72 +229,89 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
             className="w-full h-full block"
           />
           <div className="absolute top-2 right-2 px-2 py-0.5 bg-slate-950/80 rounded border border-slate-800 text-[10px] font-mono text-slate-400">
-            Sampling: 60Hz IMU
+            Sampling: 60Hz IMU Kalman Matrix
           </div>
         </div>
       </div>
 
-      {/* Alpha Slider & Presets */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-slate-300 flex items-center gap-2">
-            Filter Smoothing Factor (&alpha;)
-            <span className="text-slate-500 font-mono text-[11px]">(EMA Weight)</span>
-          </label>
-          <span className="font-mono text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-            &alpha; = {alpha.toFixed(2)}
-          </span>
+      {/* Kalman Filter Matrix Metrics & Electronic Level Badge */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800">
+          <div className="text-[10px] font-mono text-slate-400 uppercase">Process Noise (Q)</div>
+          <div className="text-sm font-mono font-bold text-cyan-400 mt-1">{processNoiseQ.toFixed(4)}</div>
+          <div className="text-[9px] text-slate-500 mt-0.5">Model uncertainty</div>
         </div>
 
-        <div className="py-2">
+        <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800">
+          <div className="text-[10px] font-mono text-slate-400 uppercase">Measurement Noise (R)</div>
+          <div className="text-sm font-mono font-bold text-amber-400 mt-1">{measurementNoiseR.toFixed(3)}</div>
+          <div className="text-[9px] text-slate-500 mt-0.5">Sensor variance</div>
+        </div>
+
+        <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800">
+          <div className="text-[10px] font-mono text-slate-400 uppercase">Kalman Gain (K)</div>
+          <div className="text-sm font-mono font-bold text-emerald-400 mt-1">{kalmanGain.toFixed(3)}</div>
+          <div className="text-[9px] text-slate-500 mt-0.5">K = P / (P + R)</div>
+        </div>
+
+        <div className={`p-3 rounded-lg border transition-colors ${
+          isLevelLocked
+            ? 'bg-emerald-950/30 border-emerald-500/40'
+            : 'bg-amber-950/20 border-amber-500/30'
+        }`}>
+          <div className="text-[10px] font-mono text-slate-400 uppercase flex items-center gap-1">
+            <Crosshair className={`w-3 h-3 ${isLevelLocked ? 'text-emerald-400' : 'text-amber-400'}`} />
+            3D Bubble Level
+          </div>
+          <div className={`text-sm font-mono font-bold mt-1 ${isLevelLocked ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {isLevelLocked ? '±0.08° LOCKED' : `TILT: ${Math.sqrt(filteredPitch * filteredPitch + filteredRoll * filteredRoll).toFixed(1)}°`}
+          </div>
+          <div className="text-[9px] text-slate-400 mt-0.5">
+            {isLevelLocked ? 'Dual-axis ≤ 0.20° target' : 'Alignment required'}
+          </div>
+        </div>
+      </div>
+
+      {/* Kalman & Smoothing Sliders */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-300 flex items-center gap-2">
+              Process Noise Covariance (Q)
+            </label>
+            <span className="font-mono text-xs font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+              Q = {processNoiseQ.toFixed(4)}
+            </span>
+          </div>
           <input
             type="range"
-            min="0.02"
-            max="0.80"
-            step="0.01"
-            value={alpha}
-            onChange={(e) => onAlphaChange(parseFloat(e.target.value))}
-            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
+            min="0.001"
+            max="0.050"
+            step="0.001"
+            value={processNoiseQ}
+            onChange={(e) => onProcessNoiseChange?.(parseFloat(e.target.value))}
+            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 touch-pan-x"
           />
         </div>
 
-        {/* Presets */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-          <button
-            onClick={() => onAlphaChange(0.06)}
-            className={`p-3 rounded-lg border text-left transition-colors min-h-[44px] ${
-              Math.abs(alpha - 0.06) < 0.02
-                ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
-                : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <div className="text-xs font-semibold">Heavy Damping</div>
-            <div className="text-[11px] text-slate-500 font-mono">&alpha; = 0.06 (Zero shake)</div>
-          </button>
-
-          <button
-            onClick={() => onAlphaChange(0.18)}
-            className={`p-3 rounded-lg border text-left transition-colors min-h-[44px] ${
-              Math.abs(alpha - 0.18) < 0.02
-                ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
-                : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <div className="text-xs font-semibold text-emerald-400">Field Recommended</div>
-            <div className="text-[11px] text-slate-500 font-mono">&alpha; = 0.18 (Survey standard)</div>
-          </button>
-
-          <button
-            onClick={() => onAlphaChange(0.45)}
-            className={`p-3 rounded-lg border text-left transition-colors min-h-[44px] ${
-              Math.abs(alpha - 0.45) < 0.02
-                ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
-                : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <div className="text-xs font-semibold">Tripod / High Speed</div>
-            <div className="text-[11px] text-slate-500 font-mono">&alpha; = 0.45 (Fast pan)</div>
-          </button>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-300 flex items-center gap-2">
+              Measurement Noise Covariance (R)
+            </label>
+            <span className="font-mono text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              R = {measurementNoiseR.toFixed(3)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min="0.01"
+            max="0.40"
+            step="0.005"
+            value={measurementNoiseR}
+            onChange={(e) => onMeasurementNoiseChange?.(parseFloat(e.target.value))}
+            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500 touch-pan-x"
+          />
         </div>
       </div>
 
@@ -278,7 +323,7 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
             <span className="font-mono text-xs text-red-400">{rawAzimuth.toFixed(1)}°</span>
             <span className="font-mono text-sm font-bold text-emerald-400">{filteredAzimuth.toFixed(1)}°</span>
           </div>
-          <div className="text-[9px] text-slate-500 mt-1">Raw vs Filtered</div>
+          <div className="text-[9px] text-slate-500 mt-1">Raw vs Kalman Filtered</div>
         </div>
 
         <div className="p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80">
@@ -287,7 +332,7 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
             <span className="font-mono text-xs text-red-400">{rawPitch >= 0 ? '+' : ''}{rawPitch.toFixed(1)}°</span>
             <span className="font-mono text-sm font-bold text-emerald-400">{filteredPitch >= 0 ? '+' : ''}{filteredPitch.toFixed(1)}°</span>
           </div>
-          <div className="text-[9px] text-slate-500 mt-1">Raw vs Filtered</div>
+          <div className="text-[9px] text-slate-500 mt-1">Raw vs Kalman Filtered</div>
         </div>
 
         <div className="p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80">
@@ -296,7 +341,7 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
             <span className="font-mono text-xs text-red-400">{rawRoll.toFixed(1)}°</span>
             <span className="font-mono text-sm font-bold text-emerald-400">{filteredRoll.toFixed(1)}°</span>
           </div>
-          <div className="text-[9px] text-slate-500 mt-1">Raw vs Filtered</div>
+          <div className="text-[9px] text-slate-500 mt-1">Raw vs Kalman Filtered</div>
         </div>
       </div>
 
@@ -304,9 +349,13 @@ export const SensorsPlayground: React.FC<SensorsPlaygroundProps> = ({
       <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3 text-xs text-slate-400 flex items-start gap-2.5">
         <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <div className="font-semibold text-slate-200">Why Linear Low-Pass Fails on Compass Bearings:</div>
+          <div className="font-semibold text-slate-200">Industrial 1D Kalman Matrix Isolation Formula:</div>
           <p className="text-[11px] leading-relaxed">
-            Standard linear interpolation fails at the North boundary ($359^\circ \to 0^\circ$). If you average $359^\circ$ and $1^\circ$ linearly with $\alpha = 0.5$, you get $180^\circ$ (South!), causing the reticle to whip $180^\circ$ backwards. GeoSight's circular modulo filter computes the shortest angular path $\Delta = ((x - y + 180) \pmod{360}) - 180$, keeping the crosshair locked and stable across $0^\circ$.
+            Unlike basic laggy low-pass filters, the 1D Kalman Filter array tracks true rotation dynamics via predictive state estimation:
+            <span className="block font-mono text-cyan-300 my-1">
+              P⁻ = P + Q  →  K = P⁻ / (P⁻ + R)  →  x̂ = x̂ + K·(z - x̂)  →  P = (1 - K)·P⁻
+            </span>
+            Combined with shortest circular angle deviation unwrapping across the 0°/360° boundary, the optical reticle tracks without lag while completely suppressing high-frequency hand tremors.
           </p>
         </div>
       </div>
