@@ -3,8 +3,10 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Explicitly lock down to Ubuntu 24 to guarantee cross-compilation stability
+    runs-on: ubuntu-24.04
     steps:
+      # Upgrade to checkout v4.2+ or handle strict runtime environments safely
       - uses: actions/checkout@v4
       
       - name: Set up Java
