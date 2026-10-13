@@ -38,3 +38,20 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: "^0.13.1"
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/logo.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/logo.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/logo.png
+
