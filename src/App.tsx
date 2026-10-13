@@ -589,8 +589,16 @@ export default function App() {
       {/* Top Bar (Clean 3-Zone Contract responsive on mobile) */}
       <header className="border-b border-slate-800 bg-slate-950/95 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 flex items-center justify-between">
-          {/* Zone 1: Single text element wordmark */}
+          {/* Zone 1: Single text element wordmark with logo */}
           <div className="flex items-center gap-2.5">
+            <img
+              src="/logo.png"
+              alt="GeoSight Logo"
+              className="w-7 h-7 rounded-md object-contain bg-slate-900 border border-amber-500/30 p-0.5 shadow-sm shadow-amber-500/10 shrink-0"
+              onError={(e) => {
+                (e.currentTarget as HTMLElement).style.display = 'none';
+              }}
+            />
             <span className="font-['Chakra_Petch',sans-serif] text-base sm:text-lg font-bold tracking-wider text-amber-400">
               GEOSIGHT
             </span>
@@ -1322,9 +1330,14 @@ export default function App() {
           <div className="bg-slate-900 border border-amber-500/60 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-amber-500/15 text-amber-400">
-                  <Calculator className="w-5 h-5" />
-                </div>
+                <img
+                  src="/logo.png"
+                  alt="GeoSight Logo"
+                  className="w-8 h-8 rounded-lg object-contain bg-slate-950 border border-amber-500/40 p-0.5 shrink-0 shadow"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
                 <div>
                   <h3 className="text-base font-bold text-slate-100 font-mono">Total Station Field Guide</h3>
                   <p className="text-[11px] text-slate-400 font-mono">GeoSight Surveying Onboarding</p>

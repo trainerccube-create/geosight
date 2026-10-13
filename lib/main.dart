@@ -1650,10 +1650,19 @@ class _TotalStationScreenState extends State<TotalStationScreen> {
             side: const BorderSide(color: Color(0xFFF59E0B), width: 1.2),
           ),
           title: Row(
-            children: const [
-              Icon(Icons.architecture, color: Color(0xFFF59E0B)),
-              SizedBox(width: 8),
-              Text('GeoSight Pro Total Station', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.asset(
+                  'assets/icon/logo.png',
+                  width: 26,
+                  height: 26,
+                  fit: BoxFit.contain,
+                  errorBuilder: (ctx, err, stack) => const Icon(Icons.architecture, color: Color(0xFFF59E0B)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text('GeoSight Pro Total Station', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
           content: SingleChildScrollView(
@@ -1764,6 +1773,34 @@ class _TotalStationScreenState extends State<TotalStationScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
                   child: Row(
                     children: [
+                      // Brand Logo Asset Button (opens field guide / tutorial)
+                      GestureDetector(
+                        onTap: _showTutorialDialog,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A).withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.6)),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.asset(
+                              'assets/icon/logo.png',
+                              width: 22,
+                              height: 22,
+                              fit: BoxFit.contain,
+                              errorBuilder: (ctx, err, stack) => const Icon(
+                                Icons.architecture,
+                                size: 18,
+                                color: Color(0xFFF59E0B),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
                       // FEATURE 4: Dual Mode HUD Switcher (Camera vs Radar)
                       Container(
                         decoration: BoxDecoration(
