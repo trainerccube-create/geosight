@@ -25,6 +25,8 @@ interface TheodoliteCanvasProps {
   kalmanGain?: number;
   hdop?: number;
   satellites?: number;
+  isBleConnected?: boolean;
+  bleDeviceName?: string;
   onPan?: (deltaAz: number, deltaPitch: number) => void;
   onZoomChange?: (newZoom: number) => void;
 }
@@ -45,6 +47,8 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
   kalmanGain = 0.12,
   hdop = 0.78,
   satellites = 22,
+  isBleConnected = false,
+  bleDeviceName = 'Leica DISTO D2-BT',
   onPan,
   onZoomChange,
 }) => {
@@ -95,6 +99,9 @@ export const TheodoliteCanvas: React.FC<TheodoliteCanvasProps> = ({
 
       // 1.1 Dedicated GNSS Telemetry Bar
       drawGNSSTelemetryBar(ctx, width, latitude, longitude, altitude, kalmanGain, hdop, satellites, scale);
+
+      // 1.2 Embedded BLE Laser Disto Badge
+      drawBleLaserBadge(ctx, width, isBleConnected, bleDeviceName, baselineDistance, scale);
 
       // 2. Horizon Level
       drawArtificialHorizon(ctx, center, telemetry.roll, horizonColor, scale);
@@ -1130,5 +1137,46 @@ function drawTargetBubbleLevel(
   const label = isLevel ? 'LEVEL LOCKED' : `TILT: ${totalTilt.toFixed(1)}°`;
   ctx.fillText(label, center.x, center.y + radius + 11);
 
+  ctx.restore();
+}
+
+function drawBleLaserBadge(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  isConnected: boolean,
+  deviceName: string,
+  baselineDistance: number,
+  scale: number
+) {
+  const isMobile = width < 540;
+  const badgeY = isMobile ? 34 : 42;
+  const pad = isMobile ? 8 : 16;
+  const badgeH = 18;
+  const badgeW = isMobile ? 140 : 170;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
+  ctx.strokeStyle = isConnected ? 'rgba(6, 182, 212, 0.65)' : 'rgba(100, 116, 139, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(pad, badgeY, badgeW, badgeH, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // Status dot
+  ctx.fillStyle = isConnected ? '#06b6d4' : '#64748b';
+  ctx.beginPath();
+  ctx.arc(pad + 8, badgeY + badgeH / 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Text
+  ctx.fillStyle = isConnected ? '#06b6d4' : '#94a3b8';
+  ctx.font = 'bold 7.5px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  const shortName = deviceName.split(' ')[0] || 'BLE';
+  const label = isConnected
+    ? `BLE: ${shortName}  ${baselineDistance.toFixed(2)}m`
+    : 'BLE LASER: DISCONNECTED';
+  ctx.fillText(label, pad + 16, badgeY + badgeH / 2 + 2.5);
   ctx.restore();
 }
